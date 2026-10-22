@@ -3,3 +3,7 @@ WisprFlowInstaller.exe
 payload/*.exe
 payload/*.nupkg
 payload/app/
+# Extracted and repacked vendor code.
+work/
+build/
+node_modules/

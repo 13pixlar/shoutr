@@ -1,0 +1,14 @@
+{
+  "name": "shoutr",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Personal learning project: running Wispr Flow on Linux.",
+  "type": "module",
+  "scripts": {
+    "repack": "node tools/repack.mjs",
+    "schema": "node tools/export-helper-schema.mjs"
+  },
+  "devDependencies": {
+    "@electron/asar": "^4.3.1"
+  }
+}
