@@ -1,0 +1,5 @@
+# Vendor binaries. Identities and hashes live in ROADMAP.md.
+WisprFlowInstaller.exe
+payload/*.exe
+payload/*.nupkg
+payload/app/
