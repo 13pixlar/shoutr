@@ -32,8 +32,9 @@ function copyTree(sourceDir, relativePath, copied) {
     const childRelative = relativePath ? `${relativePath}/${entry.name}` : entry.name;
     if (shouldSkip(childRelative)) continue;
     const source = path.join(sourceDir, entry.name);
-    // The renamed binary is what flips app.isPackaged.
-    const destRelative = childRelative === 'electron' ? 'wispr-flow' : childRelative;
+    // The renamed binary is what flips app.isPackaged. The name is also
+    // the Linux window class: --class did not override the executable name.
+    const destRelative = childRelative === 'electron' ? 'shoutr' : childRelative;
     const dest = path.join(buildDir, destRelative);
     if (entry.isDirectory()) {
       fs.mkdirSync(dest, { recursive: true });
@@ -61,10 +62,11 @@ function main() {
   copyTree(dist, '', copied);
   // A leftover binary with the stock name would be unpackaged if someone ran it.
   fs.rmSync(path.join(buildDir, 'electron'), { force: true });
+  fs.rmSync(path.join(buildDir, 'wispr-flow'), { force: true });
   fs.rmSync(path.join(buildDir, 'resources/default_app.asar'), { force: true });
-  const binary = path.join(buildDir, 'wispr-flow');
-  if (!fs.existsSync(binary)) throw new Error('Staging did not produce build/wispr-flow');
-  console.log(`Staged Electron into build/ (${copied.count} files). Binary: build/wispr-flow`);
+  const binary = path.join(buildDir, 'shoutr');
+  if (!fs.existsSync(binary)) throw new Error('Staging did not produce build/shoutr');
+  console.log(`Staged Electron into build/ (${copied.count} files). Binary: build/shoutr`);
 }
 
 main();

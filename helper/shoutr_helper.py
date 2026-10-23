@@ -16,9 +16,13 @@ Unescape +2 before +1. Escaping the other way would turn the characters "+2"
 into the escape for "|".
 
 Pass 2 answers the ready check, reports key presses, and pastes dictated
-text. Every other request still gets HelperAPIError. Values are never
-logged: a PasteText payload contains whatever the user dictated, and key
-codes would reconstruct what they typed.
+text. Pass 3 names the focused app and, when the focused control has a
+caret, the text on either side of it. That text is pushed as TextBoxInfo
+when the focused app changes and again when a dictation starts, because
+the app clears its copy at the start. Every other request still gets
+HelperAPIError. Values are never logged: a PasteText payload contains
+whatever the user dictated, key codes would reconstruct what they typed,
+and a window title or text-box read is the user's own text.
 """
 
 import json
@@ -35,8 +39,10 @@ from codecs import getincrementaldecoder
 
 from evdev import ecodes
 
+import apps
 import keycodes
 import paste
+import textbox
 
 # Epoch milliseconds, captured at import so it is the process start and not
 # the moment a reply happens to be written. The app only uses it for timing.
@@ -229,7 +235,7 @@ ACK_ONLY = (
 )
 
 
-def handle(text, fd, log, keys, paste_enabled):
+def handle(text, fd, log, keys, paste_enabled, watch=None):
     if not text:
         return
     try:
@@ -288,6 +294,71 @@ def handle(text, fd, log, keys, paste_enabled):
                 send(fd, error_response(request_uuid, kind, "paste failed", "PASTE_FAILED"))
                 log.write(note + " failed")
             return
+        if kind in ("GetAppInfo", "GetActiveAppInfo") and watch is not None:
+            app = watch.focused()
+            if kind == "GetAppInfo":
+                fields = apps.app_info_fields(app)
+                body = {"uuid": request_uuid, "AppInfo": {"payload": fields}}
+            else:
+                fields = apps.active_fields(app)
+                body = {"uuid": request_uuid, "ActiveAppInfo": {"payload": fields}}
+            send(fd, body)
+            log.write(f"{kind} -> {fields['bundleId']}")
+            return
+        if kind == "GetRunningApps" and watch is not None:
+            found = watch.running()
+            send(fd, {
+                "uuid": request_uuid,
+                "RunningApps": {"payload": {"apps": found}},
+            })
+            log.write(f"GetRunningApps -> {len(found)}")
+            return
+        if kind == "GetTextBoxInfo" and watch is not None:
+            box = watch.textbox()
+            send(fd, {"uuid": request_uuid, "TextBoxInfo": {"payload": box}})
+            if box["couldNotGetTextBoxInfo"]:
+                log.write("GetTextBoxInfo -> no caret")
+            else:
+                log.write(
+                    f"GetTextBoxInfo -> before={len(box['beforeText'])} "
+                    f"selected={len(box['selectedText'])} after={len(box['afterText'])}"
+                )
+            return
+        if kind == "GetSelectedTextViaCopy" and watch is not None:
+            box = watch.textbox()
+            fields = {
+                "afterText": box["afterText"],
+                "beforeText": box["beforeText"],
+                "contents": box["contents"],
+                "selectedText": box["selectedText"],
+            }
+            send(fd, {"uuid": request_uuid, "SelectedTextViaCopy": {"payload": fields}})
+            log.write(f"GetSelectedTextViaCopy -> selected={len(fields['selectedText'])}")
+            return
+        if kind == "GetAccessibilityStatus" and watch is not None:
+            status = watch.accessibility()
+            send(fd, {
+                "uuid": request_uuid,
+                "AccessibilityStatus": {"payload": {"status": status}},
+            })
+            log.write(f"GetAccessibilityStatus -> {status}")
+            return
+        if kind == "SetFocusChangeDetectorState" and watch is not None:
+            active = bool(payload_of(value).get("active"))
+            watch.detector = active
+            if active:
+                watch.arm()
+            log.write("SetFocusChangeDetectorState -> " + ("on" if active else "off"))
+            send(fd, ack_response(request_uuid))
+            return
+        # The app clears its text box before it sends DictationStart, so the
+        # push has to happen on this request even when the caret text is the
+        # same snapshot already sent at the last focus change.
+        if kind == "DictationStart" and watch is not None:
+            watch.dictating = True
+            publish_textbox(fd, log, watch, force=True)
+        if kind == "DictationStop" and watch is not None:
+            watch.dictating = False
         if kind in ACK_ONLY:
             log.write(f"{kind} -> ACK")
             send(fd, ack_response(request_uuid))
@@ -388,15 +459,25 @@ def main():
     if paste_enabled:
         paste.keyboard.ensure(log)
     relay, grabbed = start_swallow(devices, log, paste_enabled)
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    watch = apps.AppWatch(f"/run/user/{os.getuid()}", home, log)
 
     framer = Framer()
     watched = [0] + [device.fd for device in devices]
+    next_poll = time.monotonic() + 0.5
     try:
         while True:
             try:
-                readable, _unused, _also = select.select(watched, [], [])
+                readable, _unused, _also = select.select(watched, [], [], 0.5)
             except InterruptedError:
                 continue
+            if time.monotonic() >= next_poll:
+                next_poll = time.monotonic() + 0.5
+                try:
+                    publish_focus(3, log, watch)
+                except BrokenPipeError:
+                    log.write("fd 3 closed, exiting")
+                    return 0
             if 0 in readable:
                 try:
                     chunk = os.read(0, 65536)
@@ -406,7 +487,7 @@ def main():
                     break
                 try:
                     for text in framer.feed(chunk):
-                        handle(text, 3, log, keys, paste_enabled)
+                        handle(text, 3, log, keys, paste_enabled, watch)
                 except BrokenPipeError:
                     log.write("fd 3 closed, exiting")
                     return 0
@@ -423,6 +504,71 @@ def main():
             keycodes.ungrab(device)
     log.write("stdin closed, exiting")
     return 0
+
+
+def publish_focus(fd, log, watch):
+    """Tell the app when the focused window changes, and refresh caret text.
+
+    The hub stores the app from AppInfoUpdate. Polling is enough: the bridge
+    call is one round trip, and a repeat of the same id and title is not sent.
+    The caret walk runs on this same thread, so it runs when the focused app
+    changes and, while a dictation is open, when that app has a caret.
+    """
+    try:
+        changed = watch.poll()
+    except Exception as error:
+        log.write(f"focus poll failed: {error.__class__.__name__}")
+        return
+    if changed is not None:
+        try:
+            send_request(fd, apps.update_request(changed))
+        except BrokenPipeError:
+            raise
+        except OSError as error:
+            log.write(f"AppInfoUpdate failed: {error.__class__.__name__}")
+            return
+        log.write(f"AppInfoUpdate -> {changed['bundleId']}")
+    publish_textbox(fd, log, watch, force=False)
+
+
+def publish_textbox(fd, log, watch, force=False):
+    """Push TextBoxInfo when the caret snapshot changes.
+
+    force is for DictationStart: the app has just cleared the stored copy,
+    so the same text has to be sent again. Lengths are logged. The text is not.
+    """
+    if force:
+        try:
+            watch.focused()
+        except Exception as error:
+            log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
+            return
+    if not force and not watch.wants_textbox_poll():
+        return
+    try:
+        box = watch.textbox_for(watch.current())
+    except BrokenPipeError:
+        raise
+    except Exception as error:
+        log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
+        return
+    if not force and not watch.box_changed(box):
+        return
+    try:
+        send_request(fd, textbox.update_request(box))
+    except BrokenPipeError:
+        raise
+    except Exception as error:
+        log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
+        return
+    watch.remember_box(box)
+    if box["couldNotGetTextBoxInfo"]:
+        log.write("TextBoxInfo -> no caret")
+    else:
+        log.write(
+            f"TextBoxInfo -> before={len(box['beforeText'])} "
+            f"selected={len(box['selectedText'])} after={len(box['afterText'])}"
+        )
 
 
 def start_swallow(devices, log, paste_enabled):

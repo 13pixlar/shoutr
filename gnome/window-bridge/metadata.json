@@ -1,0 +1,23 @@
+{
+  "uuid": "wispr-flow-window-bridge@wispr.flow",
+  "name": "Wispr Flow Window Bridge",
+  "description": "Exports the focused window's identity (app id, title, pid, WM class) and a focus-change signal over D-Bus (org.wispr.flow.WindowBridge) so the Wispr Flow Linux helper can report the active application on GNOME Wayland. GNOME 42 through 44 load the legacy entry point. GNOME 45 and later load the module entry point. The installer writes the matching one as extension.js.",
+  "shell-version": [
+    "42",
+    "43",
+    "44",
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50",
+    "51",
+    "52"
+  ],
+  "session-modes": [
+    "user",
+    "unlock-dialog"
+  ],
+  "url": "https://wisprflow.ai"
+}
