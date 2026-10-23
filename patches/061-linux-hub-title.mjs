@@ -2,12 +2,12 @@
 // title. That string is what the title bar shows.
 
 export default {
-  description: 'Set the hub page title to shoutr',
+  description: 'Set the hub page title to Shoutr',
   file: '.webpack/renderer/hub/index.js',
   edits: [
     {
       find: 'document.title="Wispr Flow"',
-      replace: 'document.title="shoutr"',
+      replace: 'document.title="Shoutr"',
     },
   ],
 };

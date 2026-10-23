@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as asar from '@electron/asar';
+import { applyBrand, applyResourceIcons } from './brand.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceArchive = path.join(root, 'payload/app/lib/net45/resources/app.asar');
@@ -153,6 +154,7 @@ async function main() {
   const patches = await loadPatches();
   console.log(`Applying ${patches.length} patch(es)`);
   for (const patch of patches) applyPatch(patch);
+  applyBrand(workDir);
   overlaySqlite();
 
   console.log(`Packing -> ${path.relative(root, outputArchive)}`);
@@ -171,6 +173,7 @@ async function main() {
   }
   for (const file of linuxExecutables) fs.chmodSync(path.join(`${outputArchive}.unpacked`, file), 0o755);
   extractResourceSiblings();
+  applyResourceIcons(path.join(root, 'build/resources'));
 
   console.log(`Done. ${after.size} unpacked file(s), matching the original.`);
 }
