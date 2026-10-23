@@ -7,3 +7,4 @@ payload/app/
 work/
 build/
 node_modules/
+helper/__pycache__/

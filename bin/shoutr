@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Launch the staged Wispr Flow build under XWayland.
+#
+# The binary is build/wispr-flow, produced by `npm run stage`. It loads
+# build/resources/app.asar because that is Electron's packaged layout. Passing
+# the asar as an argument would mark the app unpackaged, so this script never
+# does that.
+#
+# stdout and stderr are copied to a launcher log. Packaged startup deletes
+# main.log, so this file is the record of a run.
+#
+# --user-data-dir is Chromium's profile and electron-store. It is not the
+# dictation database. flow.sqlite lives in the patched data directory,
+# ~/.config/Wispr Flow, which is the same directory the installed app uses.
+
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+binary="$root/build/wispr-flow"
+archive="$root/build/resources/app.asar"
+helper="$root/helper/shoutr_helper.py"
+sqlite="$root/build/resources/app.asar.unpacked/.webpack/main/native_modules/build/Release/node_sqlite3.node"
+
+die() {
+  printf 'shoutr: %s\n' "$1" >&2
+  exit 1
+}
+
+[[ -x "$binary" ]] || die "staged binary missing ($binary). Run: npm run stage"
+[[ -f "$archive" ]] || die "app.asar missing ($archive). Run: npm run repack"
+[[ -x "$helper" ]] || die "helper missing or not executable ($helper)"
+[[ -f "$sqlite" ]] || die "Linux sqlite3 build missing ($sqlite). Run: npm run native && npm run repack"
+
+magic=$(od -An -t x1 -N 4 -- "$sqlite" | tr -d ' \n')
+[[ "$magic" == "7f454c46" ]] || die "node_sqlite3.node is not a Linux ELF. Run: npm run native && npm run repack"
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+log_dir="$state_home/Wispr Flow/logs"
+mkdir -p "$log_dir"
+log_file="$log_dir/launcher-$(date +%Y%m%d-%H%M%S).log"
+
+# Read by the patched helper-path function, in the Electron process, before
+# the helper is spawned. The helper itself does not see this environment.
+export SHOUTR_HELPER="$helper"
+export ELECTRON_ENABLE_LOGGING=1
+# Electron 42 also honors this. The renamed binary is what normally flips
+# app.isPackaged; the variable covers a launch that still looks like the
+# stock electron binary.
+export ELECTRON_FORCE_IS_PACKAGED=true
+# Cursor and other Electron apps export this. Left set, wispr-flow runs as
+# plain Node and never opens a window.
+unset ELECTRON_RUN_AS_NODE
+
+printf 'shoutr: logging to %s\n' "$log_file" >&2
+cd "$root"
+exec "$binary" \
+  --ozone-platform=x11 \
+  --user-data-dir="$config_home/Wispr Flow" \
+  --enable-logging=stderr \
+  "$@" \
+  > >(tee -a "$log_file") 2>&1

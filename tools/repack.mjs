@@ -4,8 +4,11 @@
 //
 // 1. Extract the vendor archive (and its app.asar.unpacked sibling) into work/app/.
 // 2. Apply every patch in patches/*.mjs, in file-name order.
-// 3. Pack work/app/ into build/resources/app.asar and check that the same
+// 3. Replace the Windows sqlite3 addon with build/native/node_sqlite3.node.
+// 4. Pack work/app/ into build/resources/app.asar and check that the same
 //    files ended up outside the archive as in the original.
+// 5. Extract the migrations and assets that the package stores beside the
+//    archive into build/resources/. Packaged code looks for them there.
 //
 // A patch module looks like this:
 //
@@ -18,6 +21,7 @@
 // Each `find` must occur exactly once in the file. If Wispr ships a new build
 // and the text moves or changes, the repack stops instead of patching blindly.
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,6 +29,7 @@ import * as asar from '@electron/asar';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceArchive = path.join(root, 'payload/app/lib/net45/resources/app.asar');
+const sourcePackage = path.join(root, 'payload/WisprFlow-1.6.1209-full.nupkg');
 const workDir = path.join(root, 'work/app');
 const patchesDir = path.join(root, 'patches');
 const outputArchive = path.join(root, 'build/resources/app.asar');
@@ -72,6 +77,56 @@ async function loadPatches() {
   return patches;
 }
 
+// The Windows package keeps these next to app.asar. Packaged code joins them
+// onto process.resourcesPath (build/resources): migrations for the database,
+// and assets for the tray and window icons. Release/ is the Windows helper
+// and is not extracted.
+function extractResourceSiblings() {
+  if (!fs.existsSync(sourcePackage)) throw new Error(`Vendor package not found: ${sourcePackage}`);
+  const script = `
+import os, shutil, sys, zipfile
+nupkg, dest = sys.argv[1], sys.argv[2]
+prefix = "lib/net45/resources/"
+keep = ("migrations/", "assets/", "ax-inspect")
+count = 0
+with zipfile.ZipFile(nupkg) as z:
+    for info in z.infolist():
+        name = info.filename
+        if not name.startswith(prefix) or name.endswith("/"):
+            continue
+        rel = name[len(prefix):]
+        if not rel.startswith(keep):
+            continue
+        out = os.path.join(dest, rel)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with z.open(info) as src, open(out, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        count += 1
+print(count)
+`;
+  const result = spawnSync('python3', ['-c', script, sourcePackage, path.join(root, 'build/resources')], {
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'Failed to extract migrations and assets from the vendor package');
+  }
+  console.log(`  extracted ${result.stdout.trim()} resource files beside the archive`);
+}
+
+function overlaySqlite() {
+  const source = path.join(root, 'build/native/node_sqlite3.node');
+  const target = path.join(workDir, '.webpack/main/native_modules/build/Release/node_sqlite3.node');
+  if (!fs.existsSync(source)) {
+    throw new Error('Linux sqlite3 build not found at build/native/node_sqlite3.node. Run: npm run native');
+  }
+  const magic = fs.readFileSync(source).subarray(0, 4).toString('hex');
+  if (magic !== '7f454c46') {
+    throw new Error('build/native/node_sqlite3.node is not a Linux ELF. Run: npm run native');
+  }
+  fs.copyFileSync(source, target);
+  console.log('  overlaid Linux node_sqlite3.node');
+}
+
 function applyPatch(patch) {
   const target = path.join(workDir, patch.file);
   let text = fs.readFileSync(target, 'utf8');
@@ -98,6 +153,7 @@ async function main() {
   const patches = await loadPatches();
   console.log(`Applying ${patches.length} patch(es)`);
   for (const patch of patches) applyPatch(patch);
+  overlaySqlite();
 
   console.log(`Packing -> ${path.relative(root, outputArchive)}`);
   fs.rmSync(outputArchive, { force: true });
@@ -114,6 +170,7 @@ async function main() {
     throw new Error(`These files were unpacked in the original but are now inside the archive:\n  ${lost.join('\n  ')}`);
   }
   for (const file of linuxExecutables) fs.chmodSync(path.join(`${outputArchive}.unpacked`, file), 0o755);
+  extractResourceSiblings();
 
   console.log(`Done. ${after.size} unpacked file(s), matching the original.`);
 }

@@ -5,10 +5,15 @@
   "description": "Personal learning project: running Wispr Flow on Linux.",
   "type": "module",
   "scripts": {
+    "stage": "node tools/stage-electron.mjs",
+    "native": "node tools/build-sqlite3.mjs",
     "repack": "node tools/repack.mjs",
-    "schema": "node tools/export-helper-schema.mjs"
+    "schema": "node tools/export-helper-schema.mjs",
+    "start": "bin/shoutr"
   },
   "devDependencies": {
-    "@electron/asar": "^4.3.1"
+    "@electron/asar": "^4.3.1",
+    "@electron/rebuild": "4.2.1",
+    "electron": "42.11.2"
   }
 }
