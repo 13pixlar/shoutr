@@ -18,7 +18,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 binary="$root/build/shoutr"
 archive="$root/build/resources/app.asar"
-helper="$root/helper/shoutr_helper.py"
+helper="$root/helper/shoutr_helper_launcher.sh"
 sqlite="$root/build/resources/app.asar.unpacked/.webpack/main/native_modules/build/Release/node_sqlite3.node"
 
 die() {

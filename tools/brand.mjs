@@ -242,9 +242,6 @@ const DARK_STATUS =
 const LOGO =
   /=>\(0,(\w+)\.jsxs\)\("svg",\{width:e,height:e,viewBox:"33 33 121 121",fill:"none",xmlns:"http:\/\/www\.w3\.org\/2000\/svg",className:t,"aria-hidden":"true",children:\[[\s\S]*?\]\}\)/;
 
-const HOME_ICON =
-  'e===Q.z6.Dictation?(0,de.jsx)("div",{className:(0,se.A)(JXe.icon),children:h?(0,de.jsx)(rke.A,{size:20,"aria-hidden":"true"}):(0,de.jsx)(kg.A,{size:20,"aria-hidden":"true"})})';
-
 const STRUCTURAL = new Set(['vast', 'sand', 'dawn', 'fathom', 'lumen', 'chord', 'neutral', 'blue']);
 
 function isPathBrand(text, index, phrase) {
@@ -398,16 +395,6 @@ export function retintRoles(text) {
   );
 }
 
-function applyHomeLogo(text, dataUrl) {
-  const replacement =
-    'e===Q.z6.Dictation?(0,de.jsx)("div",{className:(0,se.A)(JXe.icon),children:(0,de.jsx)("img",{src:"data:image/png;base64,' +
-    dataUrl +
-    '",width:22,height:22,alt:"Shoutr",draggable:!1,style:{display:"block",width:22,height:22}})})';
-  const count = text.split(HOME_ICON).length - 1;
-  if (count !== 1) throw new Error(`home logo: expected one sidebar mark, found ${count}`);
-  return text.replace(HOME_ICON, () => replacement);
-}
-
 function replaceOnce(text, find, replace, label) {
   const count = text.split(find).length - 1;
   if (count !== 1) throw new Error(`${label}: expected the theme text once, found ${count}`);
@@ -495,10 +482,9 @@ export function applyBrand(workDir) {
     wispr += original.split('Wispr').length - 1;
   }
   const dataUrl = iconDataUrl(workDir);
-  const hubJs = path.join(workDir, '.webpack/renderer/hub/index.js');
-  fs.writeFileSync(hubJs, applyHomeLogo(fs.readFileSync(hubJs, 'utf8'), dataUrl));
   let logos = 0;
   for (const file of walkTextFiles(workDir)) {
+    if (file.endsWith(`${path.sep}hub${path.sep}index.js`)) continue;
     const original = fs.readFileSync(file, 'utf8');
     if (!original.includes('viewBox:"33 33 121 121"')) continue;
     const replaced = inlineLogo(original, dataUrl);
@@ -508,7 +494,7 @@ export function applyBrand(workDir) {
     fs.writeFileSync(file, replaced.text);
     logos += 1;
   }
-  if (logos !== 3) throw new Error(`Expected the waveform icon in 3 windows, found ${logos}`);
+  if (logos !== 2) throw new Error(`Expected the waveform icon in 2 windows (not the hub), found ${logos}`);
   const hubHtml = path.join(workDir, '.webpack/renderer/hub/index.html');
   const html = fs.readFileSync(hubHtml, 'utf8').replace('background-color: white;', 'background-color: #080D20; color: #E8EDFF;');
   fs.writeFileSync(hubHtml, html);

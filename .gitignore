@@ -8,3 +8,5 @@ work/
 build/
 node_modules/
 helper/__pycache__/
+# Bundled python3-evdev when the system package is not installed.
+vendor/
