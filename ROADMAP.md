@@ -368,6 +368,52 @@ Answered and moved into the findings: the ready handshake, the response shape, t
 - **Auto-update on Linux.** The 23 October launch did start the check, and the override-release URL returned HTML. No update was downloaded in that run. Whether a later check downloads anything is not established.
 - **The live database.** `~/.config/Wispr Flow/flow.sqlite` has 17 migrations that 1.6.957 does not ship. The 1.6.1209 launch after 1.6.957 was quit did not add more. How 1.6.957 behaves against that schema is not established. Leave 1.6.957 quit while 1.6.1209 is running.
 
+## Pass 5: Shoutr v1 scope
+
+Shoutr v1 is a dictation client on Linux that opens the hub at launch on About Shoutr. It keeps auth, push-to-talk dictation, paste, the Linux helper, status toasts, the tray, mic and shortcut settings, personal dictionary sync, and Insights stats (cache prefetch on Linux). It drops or no-ops meetings, notetaker, calendar, notes, extensions, referral and trial promo UI, scratchpad and meeting-recorder prewarm, and Linux auto-update polling.
+
+| Area | Keep | Disable or no-op (Linux patches) |
+| --- | --- | --- |
+| Launch | Hub (About Shoutr) + status window | — (removed tray-first `090`) |
+| Hub main nav | About Shoutr, Insights, Dictation, Dictionary | My Voice, Notetaker, Snippets, Style, Transforms, Notes, Tasks, Memory, vendor Extensions home (`091`, `097`) |
+| Hub footer | Shortcuts, Settings | Team, Referral, student challenge, Help (`091`) |
+| Settings | General, System, Account, Plans and Billing, Data and Privacy (`107`) | Notetaker, Vibe coding, Experimental, Connectors, MCP, Team, internal/testing pages |
+| Hub header | Account menu | Notifications bell and panel (`106`) |
+| Background | Helper, dictation pipeline, insights cache | Calendar sync, meetings drain, pending promo fetch, launch verdict proof sync (`092`–`094`; `095` removed) |
+| Extra windows | Status, hub when opened | Scratchpad and meeting-recorder prewarm (`096`) |
+| Updates | — | `startCheckingForUpdates` on Linux (`093`) |
+
+### Pass 5 regression checklist
+
+Run after `npm run repack` and restarting with `bin/shoutr` (vendor `wispr-flow` quit):
+
+1. **Launch:** hub opens on About Shoutr; status window present.
+2. **Hub nav:** About, Insights, Dictation, Dictionary in the sidebar; Settings (and Shortcuts) in the footer; no Notetaker row; no notifications bell in the header.
+3. **Settings modal:** sidebar lists only General, System, Account, Plans and Billing, Data and Privacy.
+4. **Popovers:** account menu and other hub popovers use navy `#111B3D` with readable foreground (hub forced dark in `108`; `brand.mjs` retints `var(--shade-white)` surfaces).
+5. **Ctrl+Space:** transcribe, paste into the focused app; no stray Space from the shortcut.
+6. **Muted-mic toast:** clickable (existing Linux status patches).
+7. **Helper log:** ready, no crash loop.
+8. **Logs:** no `[CalendarSyncManager] Initializing`, no `[MeetingRecorder] Pre-warmed`, no `[Scratchpad] Pre-warmed` on a fresh launch (optional: fewer renderer processes than before prewarm was disabled).
+
+### Pass 5 progress
+
+- **Scope patches 091–098 (+ 092b).** Repack on 25 October 2026 applies 18 patches (010–080, 091–094, 096–098). Removed `090` (tray-first) and `095` (insights cache skip) per UI polish.
+- **Hub at launch + About default (`097`/`098`).** Main window opens at startup again; each time the hub is shown, sidebar selects About Shoutr. About uses the same `A4` full-width page shell as Insights and Dictation (`var(--background)` panel).
+- **Insights loading fix.** Re-enabled insights cache prefetch on Linux (removed `095`) so Insights tab is not stuck on skeleton loaders.
+- **Hub UI trim (`098`).** Dictation hero banners off; voice-profile / Bot Architect card off; Dictionary promo banner off; Insights share ring off; hub modal/dialog surfaces use `#111B3D` to match status toasts.
+- **Dictation layout + hub chrome (`100`/`101`).** Dictation stats aside removed. On Linux the hub opens at **1020×690** (reference screenshot), edge resize is off, maximize still works.
+- **Linux menus (`102`).** Tray and GNOME app menu match hub nav (About, Insights, Dictation, Dictionary, Shortcuts, Settings); notetaker, calendar, help/support/feedback, and update entries removed. Tray keeps paste-last-transcript, mic, and languages.
+- **Sidebar always open (`103`/`104`).** Collapse toggle removed; logo + Pro pill sit in the first sidebar row using the same icon column as nav items; sidebar no longer collapses.
+- **External links (`104`/`105`).** About page Wispr link opens in the system browser (hub `window.open` handler + click handler).
+- **Notifications removed (`106`).** Header bell, unread badge, notifications popover, and shared-note anchor popover removed for v1.
+- **Settings nav trim (`107`).** Settings sidebar fixed to General + System and Account + Plans and Billing + Data and Privacy.
+- **Popover theme (`108` + `brand.mjs`).** Hub theme provider always applies dark; key popover surfaces hard-coded to `#111B3D`; global retint maps `var(--shade-white)` backgrounds so light saved theme preference does not yield white sheets.
+- **Scratchpad prewarm. Observed.** First repacked run still logged `[Scratchpad] Re-warming pre-warmed window (config changed)` until patch `096` also guarded `he=()`. Second repack + restart: no Scratchpad or MeetingRecorder prewarm lines in `/tmp/shoutr-v1-test.log`.
+- **App services. Observed.** `Launching app services...` and `App services finished launching` still run (hub IPC init). No `[CalendarSyncManager] Initializing`, no `[MDM] Failed to start update checks`, and no insights prefetch errors on the smoke log. `[CalendarReminder]` status-lane pushes may still appear; calendar **sync** init is patched to skip on Linux when that path runs.
+- **Hub nav and promos.** Patches `091` and `092`/`092b` are in the bundle (`w1=[Q.z6.Dictation,Q.z6.Dictionary]`, hub dialog `useEffect` short-circuited in `092b`). **Fix:** first `092b` used `process.platform` in the hub renderer, which threw `ReferenceError: process is not defined` and showed “Shoutr hit a snag”; repack uses an unconditional `return` at the top of that effect (renderer has no `process`; Shoutr is Linux-only). Manual UI check: open hub from tray and confirm sidebar/footer; Ctrl+Space dictation unchanged from Pass 2.
+- **Helper (optional trim).** No change. `StartAllIntervals` / `StopAllIntervals` already ACK-only in `helper/shoutr_helper.py`; v1 dictation path unchanged.
+
 ## Out of scope
 
 - Bypassing sign-in, subscription limits, paywalls, or any server-side check. The port uses our own account as Wispr's servers see fit.

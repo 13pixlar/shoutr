@@ -274,6 +274,18 @@ export function replaceBrand(text) {
     if (source.slice(offset - 6, offset) === 'Wispr ') return match;
     return 'Shoutr';
   });
+  // Shoutr-only About page and account menu lines must keep Wispr as the service vendor.
+  const vendorCredit = [
+    ['simple Linux port of Shoutr', 'simple Linux port of Wispr Flow'],
+    ['compete with Shoutr or', 'compete with Wispr or'],
+    ['sign in with your Shoutr account', 'sign in with your Wispr Flow account'],
+    ['runs on Shoutr servers', 'runs on Wispr servers'],
+    ['team at Shoutr for', 'team at Wispr Flow for'],
+    ['Logged in with Shoutr account', 'Logged in with Wispr account'],
+  ];
+  for (const [from, to] of vendorCredit) {
+    text = text.replaceAll(from, to);
+  }
   return text;
 }
 
@@ -315,6 +327,9 @@ function retintHardcoded(text) {
   text = text.replaceAll('background:#ffffff', 'background:#111B3D');
   text = text.replaceAll('background:var(--pure-white)', 'background:#111B3D');
   text = text.replaceAll('background-color:var(--pure-white)', 'background-color:#111B3D');
+  text = text.replaceAll('background-color:var(--shade-white)', 'background-color:#111B3D');
+  text = text.replaceAll('background:var(--shade-white)', 'background:#111B3D');
+  text = text.replaceAll('--shade-white: var(--background);', '--shade-white: #111B3D;');
   for (const gray of ['#e8e8e8', '#ececec', '#e2e2e2', '#eeeeee']) {
     text = text.replaceAll(`solid ${gray}`, 'solid #293657');
   }
