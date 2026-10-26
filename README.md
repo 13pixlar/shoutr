@@ -12,7 +12,16 @@ Push-to-talk types into the focused window.
 
 ## Use it
 
-Debian, Ubuntu, or another apt system such as Linux Mint or Pop!_OS. x86_64, from the account you dictate with. Clone the repository, then:
+Debian, Ubuntu, or another apt system such as Linux Mint or Pop!_OS. x86_64, from the account you dictate with.
+
+Get the repository:
+
+```bash
+git clone https://github.com/13pixlar/shoutr.git
+cd shoutr
+```
+
+Install Shoutr:
 
 ```bash
 ./install.sh
