@@ -1,7 +1,29 @@
 // Shoutr hub UI: About page, no sidebar growth CTAs, no theme toggle, simplified account menu.
+// The About paragraphs follow the opening of README.md.
+
+const aboutLead =
+  'Wispr Flow is a great dictation app. You hold a key, talk, and it types into the window in front of you. It ships for macOS and Windows, and it lacks Linux support.';
+const aboutFollow =
+  'Shoutr is a Linux client for that same dictation, for GNOME, including Wayland. It is a project made in good faith. You sign in with your own Wispr account, and the speech still runs on Wispr\'s servers. Any money you pay still goes to Wispr Flow.';
+
+function aboutParagraph(text) {
+  return `(0,de.jsx)("p",{style:{margin:"0 0 12px",lineHeight:1.65,maxWidth:"62ch"},children:${JSON.stringify(text)}})`;
+}
+
+// Plain <a target="_blank"> stays inside the hub. Open these in the system browser.
+function aboutLink(href, label) {
+  const url = JSON.stringify(href);
+  return `(0,de.jsx)("a",{href:${url},target:"_blank",rel:"noopener noreferrer",style:{color:"var(--primary)",cursor:"pointer"},onClick:e=>{e.preventDefault(),window.electron.shell.openExternal(${url})},children:${JSON.stringify(label)}})`;
+}
 
 const aboutPage =
-  'case Q.z6.ExtensionsHome:return{node:(0,de.jsxs)(A4,{title:"About Shoutr",children:[(0,de.jsx)("p",{style:{margin:"0 0 12px",lineHeight:1.65},children:"Shoutr is a simple Linux port of Wispr Flow. We built it because we wanted native dictation on Linux—not to compete with Wispr or make money from this project."}),(0,de.jsx)("p",{style:{margin:"0 0 12px",lineHeight:1.65},children:"You still sign in with your Wispr Flow account. Transcription runs on Wispr servers, and subscription payments go to them. Shoutr does not charge anything or run its own backend."}),(0,de.jsx)("p",{style:{margin:"0 0 12px",lineHeight:1.65},children:"Thank you to the team at Wispr Flow for an excellent product."}),(0,de.jsx)("p",{style:{margin:0,lineHeight:1.65},children:(0,de.jsx)("a",{href:"https://wisprflow.com",target:"_blank",rel:"noopener noreferrer",style:{color:"var(--primary)"},children:"Visit wisprflow.com"})})]}),surface:Q.z6.ExtensionsHome};';
+  'case Q.z6.ExtensionsHome:return{node:(0,de.jsxs)(A4,{title:"About Shoutr",children:[' +
+  [
+    aboutParagraph(aboutLead),
+    aboutParagraph(aboutFollow),
+    `(0,de.jsxs)("p",{style:{margin:0,lineHeight:1.65},children:[${aboutLink('https://github.com/13pixlar/shoutr', 'GitHub')}," · ",${aboutLink('https://wisprflow.com', 'Wispr ❤️')}]})`,
+  ].join(',') +
+  ']}),surface:Q.z6.ExtensionsHome};';
 
 export default {
   description: 'About Shoutr page, drop team CTAs, theme toggle, and referral account copy',
