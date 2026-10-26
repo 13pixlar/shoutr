@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=Shoutr - Wispr Flow for Linux
+Name=Shoutr
 Comment=Voice dictation that types into the focused app
 GenericName=Voice Dictation
 Exec=shoutr %U

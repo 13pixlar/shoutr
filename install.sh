@@ -105,7 +105,9 @@ choose_packages() {
 	for name in "${candidates[@]}"; do
 		# apt-cache show succeeds for a package with no installable version.
 		# Candidate: (none) is that case, and apt-get install would fail.
-		candidate=$(apt-cache policy "$name" 2>/dev/null | awk '/^  Candidate:/ {print $2; exit}')
+		# Do not exit awk early: with pipefail, apt-cache then gets SIGPIPE and the
+		# script stops with no message after "== System packages".
+		candidate=$(apt-cache policy "$name" 2>/dev/null | awk '/^  Candidate:/ {print $2}')
 		if [[ -n $candidate && $candidate != "(none)" ]]; then
 			known+=("$name")
 		fi
