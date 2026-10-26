@@ -1,38 +1,57 @@
-#!/usr/bin/env bash
-# Launch the staged build under XWayland. The window name is shoutr.
+#!/bin/bash
+# Launch Shoutr. From a checkout this is bin/shoutr. After ./install.sh the
+# same file is /usr/bin/shoutr and the binary lives in /usr/lib/shoutr.
 #
-# The binary is build/shoutr, produced by `npm run stage`. It loads
-# build/resources/app.asar because that is Electron's packaged layout. Passing
-# the asar as an argument would mark the app unpackaged, so this script never
-# does that. The executable name is also the Linux window class.
+# The renamed binary loads resources/app.asar on its own. Passing the archive
+# as an argument would mark the app unpackaged, so this script never does that.
 #
-# stdout and stderr are copied to a launcher log. Packaged startup deletes
-# main.log, so this file is the record of a run.
-#
-# --user-data-dir is Chromium's profile and electron-store. It is not the
-# dictation database. flow.sqlite lives in the patched data directory,
-# ~/.config/Wispr Flow, which is the same directory the installed app uses.
+# On a Wayland session the window stays an XWayland client. That is the
+# arrangement the hub patches were tried with. Paste and push-to-talk do not
+# use the window's toolkit: they use /dev/uinput and the real keyboards.
+# SHOUTR_USE_WAYLAND=1 asks Electron for a native Wayland window instead.
+# SHOUTR_USE_X11=1 keeps XWayland when both are set.
 
 set -euo pipefail
 
-root=$(cd "$(dirname "$0")/.." && pwd)
-binary="$root/build/shoutr"
-archive="$root/build/resources/app.asar"
-helper="$root/helper/shoutr_helper_launcher.sh"
-sqlite="$root/build/resources/app.asar.unpacked/.webpack/main/native_modules/build/Release/node_sqlite3.node"
-
 die() {
-  printf 'shoutr: %s\n' "$1" >&2
-  exit 1
+	printf 'shoutr: %s\n' "$1" >&2
+	exit 1
 }
 
-[[ -x "$binary" ]] || die "staged binary missing ($binary). Run: npm run stage"
-[[ -f "$archive" ]] || die "app.asar missing ($archive). Run: npm run repack"
-[[ -x "$helper" ]] || die "helper missing or not executable ($helper)"
-[[ -f "$sqlite" ]] || die "Linux sqlite3 build missing ($sqlite). Run: npm run native && npm run repack"
+here=$(cd "$(dirname "$0")" && pwd)
+if [[ -f $here/../packaging/paths.sh ]]; then
+	# shellcheck source=../packaging/paths.sh
+	source "$here/../packaging/paths.sh"
+elif [[ -f /usr/lib/shoutr/paths.sh ]]; then
+	# shellcheck source=/usr/lib/shoutr/paths.sh
+	source /usr/lib/shoutr/paths.sh
+else
+	die "paths.sh is missing. Run ./install.sh from the repository."
+fi
 
-magic=$(od -An -t x1 -N 4 -- "$sqlite" | tr -d ' \n')
-[[ "$magic" == "7f454c46" ]] || die "node_sqlite3.node is not a Linux ELF. Run: npm run native && npm run repack"
+if [[ ${1:-} == --doctor ]]; then
+	if [[ -f $here/../packaging/doctor.sh ]]; then
+		exec bash "$here/../packaging/doctor.sh"
+	fi
+	exec bash /usr/lib/shoutr/doctor.sh
+fi
+
+if ! resolve_shoutr_paths "$0"; then
+	die "Shoutr is not built. From the repository, run ./install.sh"
+fi
+
+[[ -x $SHOUTR_BINARY ]] || die "application binary missing ($SHOUTR_BINARY). Run ./install.sh"
+[[ -f $SHOUTR_ARCHIVE ]] || die "app.asar missing ($SHOUTR_ARCHIVE). Run ./install.sh"
+[[ -x $SHOUTR_HELPER ]] || die "helper missing or not executable ($SHOUTR_HELPER)"
+[[ -f $SHOUTR_SQLITE ]] || die "Linux sqlite addon missing ($SHOUTR_SQLITE). Run ./install.sh"
+
+magic=$(od -An -t x1 -N 4 -- "$SHOUTR_SQLITE" | tr -d ' \n')
+[[ $magic == 7f454c46 ]] || die "node_sqlite3.node is not a Linux ELF. Run ./install.sh"
+
+# shellcheck disable=SC1091
+source "$(dirname "$SHOUTR_HELPER")/evdev_setup.sh"
+shoutr_ensure_system_evdev "$(cd "$(dirname "$SHOUTR_HELPER")/.." && pwd)" \
+	|| die "python3-evdev is required"
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
@@ -40,9 +59,23 @@ log_dir="$state_home/Wispr Flow/logs"
 mkdir -p "$log_dir"
 log_file="$log_dir/launcher-$(date +%Y%m%d-%H%M%S).log"
 
+lock="$config_home/Wispr Flow/SingletonLock"
+if [[ -L $lock ]]; then
+	target=$(readlink "$lock" 2>/dev/null || true)
+	pid=${target##*-}
+	if [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+		name=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+		die "pid $pid${name:+ ($name)} holds the profile. Quit that Shoutr or wispr-flow first."
+	fi
+	if [[ $pid =~ ^[0-9]+$ ]]; then
+		rm -f "$lock"
+		printf 'shoutr: removed a stale profile lock for pid %s\n' "$pid" >&2
+	fi
+fi
+
 # Read by the patched helper-path function, in the Electron process, before
 # the helper is spawned. The helper itself does not see this environment.
-export SHOUTR_HELPER="$helper"
+export SHOUTR_HELPER
 export ELECTRON_ENABLE_LOGGING=1
 # Electron 42 also honors this. The renamed binary is what normally flips
 # app.isPackaged; the variable covers a launch that still looks like the
@@ -52,14 +85,30 @@ export ELECTRON_FORCE_IS_PACKAGED=true
 # plain Node and never opens a window.
 unset ELECTRON_RUN_AS_NODE
 
+ozone=(--ozone-platform=x11)
+if [[ ${SHOUTR_USE_WAYLAND:-} == 1 && ${SHOUTR_USE_X11:-} != 1 ]]; then
+	ozone=(
+		--enable-features=UseOzonePlatform,WaylandWindowDecorations
+		--ozone-platform=wayland
+		--enable-wayland-ime
+	)
+	printf 'shoutr: native Wayland window\n' >&2
+elif [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+	printf 'shoutr: Wayland session, window on XWayland\n' >&2
+fi
+
 printf 'shoutr: logging to %s\n' "$log_file" >&2
-cd "$root"
+if [[ $SHOUTR_LAYOUT == checkout ]]; then
+	cd "$(dirname "$SHOUTR_BINARY")/.."
+else
+	cd "$(dirname "$SHOUTR_BINARY")"
+fi
 # --class is the Linux window-manager name. The page title is patched
 # to the same string, so the title bar and the overview agree.
-exec "$binary" \
-  --class=shoutr \
-  --ozone-platform=x11 \
-  --user-data-dir="$config_home/Wispr Flow" \
-  --enable-logging=stderr \
-  "$@" \
-  > >(tee -a "$log_file") 2>&1
+exec "$SHOUTR_BINARY" \
+	--class=shoutr \
+	"${ozone[@]}" \
+	--user-data-dir="$config_home/Wispr Flow" \
+	--enable-logging=stderr \
+	"$@" \
+	> >(tee -a "$log_file") 2>&1

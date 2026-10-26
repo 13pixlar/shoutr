@@ -5,18 +5,21 @@ One file cannot be both, so this copies extension-42.js or extension-45.js
 to extension.js. Shell 43 and 44 use the same script as 42. The break is 45.
 
     python3 gnome/install_window_bridge.py
+    python3 gnome/install_window_bridge.py --enable
     python3 gnome/install_window_bridge.py --reload
+    python3 gnome/install_window_bridge.py --remove
 
---reload asks the running shell to load extensions again. GNOME 42 has no
-per-extension reload. Flipping disable-extension-version-validation is the
-switch the shell already listens for, and it reloads every extension, then
-the setting is put back. The panel can flicker. Without --reload, a login
-is what makes a changed extension.js take effect.
+With no flag the files are copied and the running shell keeps its previous
+copy until the next login. --enable turns the extension on, and reloads
+every extension when that is what it takes for this shell to see the new
+file. The panel can flicker. --reload does that even when the file did not
+change. --remove drops it from this user's enabled list and deletes the copy.
 """
 
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -28,6 +31,31 @@ OBJECT_PATH = "/org/wispr/flow/WindowBridge"
 SOURCE = Path(__file__).resolve().parent / "window-bridge"
 VERSION_SCHEMA = "org.gnome.shell"
 VERSION_KEY = "disable-extension-version-validation"
+ENABLED_SCHEMA = "org.gnome.shell"
+ENABLED_KEY = "enabled-extensions"
+
+
+def parse_enabled_list(raw):
+    """UUIDs from `gsettings get` output. The @as prefix is display only."""
+    return re.findall(r"'([^']*)'", raw)
+
+
+def format_enabled_list(values):
+    """A value `gsettings set` accepts for a string array."""
+    if not values:
+        return "[]"
+    return "[" + ", ".join("'" + value + "'" for value in values) + "]"
+
+
+def ensure_enabled(values, uuid):
+    if uuid in values:
+        return list(values), False
+    return [*values, uuid], True
+
+
+def without_enabled(values, uuid):
+    kept = [value for value in values if value != uuid]
+    return kept, len(kept) != len(values)
 
 
 def shell_major():
@@ -52,13 +80,33 @@ def destination():
     return Path(data) / "gnome-shell" / "extensions" / UUID
 
 
+def write_if_changed(path, text):
+    if path.is_file() and path.read_text(encoding="utf-8") == text:
+        return False
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
 def install(major):
     src = entry_point(major)
     dest = destination()
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "metadata.json").write_text((SOURCE / "metadata.json").read_text())
-    (dest / "extension.js").write_text(src.read_text())
-    return src.name, dest
+    changed = write_if_changed(dest / "metadata.json", (SOURCE / "metadata.json").read_text(encoding="utf-8"))
+    changed = write_if_changed(dest / "extension.js", src.read_text(encoding="utf-8")) or changed
+    return src.name, dest, changed
+
+
+def session_bus_available():
+    if os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return True
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime:
+        return False
+    bus = os.path.join(runtime, "bus")
+    if os.path.exists(bus):
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + bus
+        return True
+    return False
 
 
 def extension_info():
@@ -80,6 +128,27 @@ def extension_info():
     return int(float(state.group(1))), message
 
 
+def try_extension_info():
+    try:
+        return extension_info()
+    except (subprocess.CalledProcessError, RuntimeError):
+        return None
+
+
+def read_enabled():
+    raw = subprocess.check_output(
+        ["gsettings", "get", ENABLED_SCHEMA, ENABLED_KEY],
+        text=True,
+    )
+    return parse_enabled_list(raw)
+
+
+def write_enabled(values):
+    subprocess.check_call(
+        ["gsettings", "set", ENABLED_SCHEMA, ENABLED_KEY, format_enabled_list(values)]
+    )
+
+
 def reload_extensions():
     """Flip the version-check setting and restore it. Each edge reloads."""
     current = subprocess.check_output(
@@ -98,13 +167,14 @@ def reload_extensions():
 def wait_until_settled():
     # loadExtension marks the extension ERROR for a moment before enable, so
     # one ENABLED reading is not enough. Two in a row means the reload finished.
+    # A shell that has not scanned the new directory yet has no state at all.
     last = None
     enabled_reads = 0
     deadline = time.monotonic() + 8
     time.sleep(0.3)
     while time.monotonic() < deadline:
-        last = extension_info()
-        if last[0] == 1:
+        last = try_extension_info()
+        if last and last[0] == 1:
             enabled_reads += 1
             if enabled_reads >= 2:
                 return last
@@ -127,26 +197,99 @@ def focused_window():
     return raw.strip()
 
 
+def print_focused():
+    try:
+        print(focused_window())
+    except (subprocess.CalledProcessError, OSError):
+        return
+
+
+def ask_shell_to_enable():
+    subprocess.call(
+        ["gnome-extensions", "enable", UUID],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def activate(changed, force_reload):
+    values, dirty = ensure_enabled(read_enabled(), UUID)
+    if dirty:
+        write_enabled(values)
+    ask_shell_to_enable()
+    state = try_extension_info()
+    if state and state[0] == 1 and not changed and not force_reload:
+        print(f"GNOME extension enabled ({UUID})")
+        print_focused()
+        return 0
+    print("Reloading GNOME extensions so this shell reads the bridge. The panel may flicker.")
+    reload_extensions()
+    ask_shell_to_enable()
+    state = try_extension_info()
+    if not state:
+        print("The shell did not report the extension. Log out and back in.")
+        return 1
+    code, message = state
+    print(f"state {code}" + (f": {message}" if message else ""))
+    if code != 1:
+        return 1
+    print_focused()
+    return 0
+
+
+def remove_extension():
+    if session_bus_available():
+        try:
+            values, dirty = without_enabled(read_enabled(), UUID)
+            if dirty:
+                write_enabled(values)
+        except (subprocess.CalledProcessError, OSError) as error:
+            print(f"Could not update the enabled list: {error}")
+        subprocess.call(
+            ["gnome-extensions", "disable", UUID],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    dest = destination()
+    if dest.exists():
+        shutil.rmtree(dest)
+        print(f"Removed {dest}")
+    else:
+        print(f"No extension at {dest}")
+    print("Log out if the shell is still running the old copy.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--enable",
+        action="store_true",
+        help="enable the extension, reloading the shell if it cannot see the new file",
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
-        help="reload every enabled extension so the new file runs without a login",
+        help="reload every enabled extension even when the files did not change",
+    )
+    parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="disable the extension and delete this user's copy",
     )
     args = parser.parse_args()
+    if args.remove:
+        return remove_extension()
     major = shell_major()
-    name, dest = install(major)
+    name, dest, changed = install(major)
     print(f"GNOME Shell {major}: installed {name} to {dest}")
-    if not args.reload:
-        print("The running shell keeps the previous copy until login, or pass --reload.")
+    if not args.enable and not args.reload:
+        print("The running shell keeps the previous copy until login, or pass --enable.")
         return 0
-    state, message = reload_extensions()
-    print(f"state {state}" + (f": {message}" if message else ""))
-    if state != 1:
-        return 1
-    print(focused_window())
-    return 0
+    if not session_bus_available():
+        print("No desktop session bus. Log in and run: python3 gnome/install_window_bridge.py --enable")
+        return 0
+    return activate(changed, force_reload=args.reload)
 
 
 if __name__ == "__main__":

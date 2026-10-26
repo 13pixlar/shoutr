@@ -1,0 +1,7 @@
+# Shoutr needs two devices, and both are root-only until a rule says otherwise.
+# /dev/uinput is the virtual keyboard that pastes dictated text.
+# /dev/input/event* is how push-to-talk sees Ctrl+Space.
+# uaccess gives that access to the person at the seat, not to every account.
+# The input group is the fallback when the session ACL is not applied.
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess", GROUP="input", MODE="0660"
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess", GROUP="input", MODE="0660"

@@ -30,7 +30,21 @@ import { applyBrand, applyResourceIcons } from './brand.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceArchive = path.join(root, 'payload/app/lib/net45/resources/app.asar');
-const sourcePackage = path.join(root, 'payload/WisprFlow-1.6.1209-full.nupkg');
+
+// ./install.sh writes the one nupkg named in packaging/vendor.json. The
+// version stays in that file so a new pin does not require an edit here.
+function sourcePackagePath() {
+  const dir = path.join(root, 'payload');
+  const names = fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter((name) => name.endsWith('-full.nupkg') && !name.endsWith('.partial'))
+    : [];
+  if (names.length !== 1) {
+    throw new Error(
+      `Expected one payload/*-full.nupkg (found ${names.length}). Run ./install.sh to download the pinned Wispr build.`,
+    );
+  }
+  return path.join(dir, names[0]);
+}
 const workDir = path.join(root, 'work/app');
 const patchesDir = path.join(root, 'patches');
 const outputArchive = path.join(root, 'build/resources/app.asar');
@@ -83,6 +97,7 @@ async function loadPatches() {
 // and assets for the tray and window icons. Release/ is the Windows helper
 // and is not extracted.
 function extractResourceSiblings() {
+  const sourcePackage = sourcePackagePath();
   if (!fs.existsSync(sourcePackage)) throw new Error(`Vendor package not found: ${sourcePackage}`);
   const script = `
 import os, shutil, sys, zipfile

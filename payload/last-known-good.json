@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "windows": {
+    "x64": {
+      "url": "https://dl.wisprflow.com/wispr-flow/win32/x64/Wispr%20Flow%20Setup-v1.6.531.exe",
+      "sha256": "4d19fa3456a834a0fff86ca5368e893d54fe934bc7336795ec8ac28ccd10215e",
+      "size": 354514304
+    }
+  }
+}

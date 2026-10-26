@@ -1,0 +1,11 @@
+{
+  "note": "patches/ matches this Windows build. The installer does not follow payload/latest.json, because a newer Wispr release would make those edits miss.",
+  "version": "1.6.1209",
+  "setupName": "Wispr Flow Setup-v1.6.1209.exe",
+  "url": "https://dl.wisprflow.com/wispr-flow/win32/x64/Wispr%20Flow%20Setup-v1.6.1209.exe",
+  "sha256": "e8f2796f40dad6de1b1d274da5d877a8d992d8b62132c4b3be54e3522564f5b8",
+  "size": 333073272,
+  "nupkgName": "WisprFlow-1.6.1209-full.nupkg",
+  "nupkgSha256": "f429ca871d74ed03625526dd4194217ebbfeee73dea9970404c2321d687c9a82",
+  "asarSha256": "b814349545384185c78db695a2c4d0bc5fd9b3db7743a6ea61c64a7ab90224b3"
+}

@@ -2,14 +2,18 @@
   "name": "shoutr",
   "version": "0.0.0",
   "private": true,
-  "description": "Personal learning project: running Wispr Flow on Linux.",
+  "description": "Linux dictation client. ./install.sh sets up Wayland input, GNOME, and the pinned Wispr build.",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "stage": "node tools/stage-electron.mjs",
     "native": "node tools/build-sqlite3.mjs",
     "repack": "node tools/repack.mjs",
     "schema": "node tools/export-helper-schema.mjs",
-    "start": "bin/shoutr"
+    "start": "bin/shoutr",
+    "doctor": "bash packaging/doctor.sh"
   },
   "devDependencies": {
     "@electron/asar": "^4.3.1",

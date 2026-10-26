@@ -2,11 +2,16 @@
 WisprFlowInstaller.exe
 payload/*.exe
 payload/*.nupkg
+payload/*.partial
 payload/app/
 # Extracted and repacked vendor code.
 work/
 build/
 node_modules/
 helper/__pycache__/
+gnome/__pycache__/
+tools/__pycache__/
 # Bundled python3-evdev when the system package is not installed.
 vendor/
+# Node unpacked by install.sh when the system Node is older than 22.12.
+.tools/

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Shoutr
+Comment=Voice dictation that types into the focused app
+GenericName=Voice Dictation
+Exec=shoutr %U
+Icon=shoutr
+Terminal=false
+Type=Application
+Categories=Utility;Audio;
+StartupWMClass=shoutr
+StartupNotify=true
+Keywords=voice;dictation;speech;transcription;
