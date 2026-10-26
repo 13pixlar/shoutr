@@ -15,6 +15,23 @@ test('visible product names become Shoutr', () => {
   assert.equal(replaceBrand('the wispr flow window'), 'the shoutr window');
 });
 
+test('the About page still names Wispr as the service people pay', () => {
+  const about = [
+    'Wispr Flow is a great dictation app. You hold a key, talk, and it types into the window in front of you.',
+    'Shoutr is a Linux client for that same dictation. You sign in with your own Wispr account, and the speech still runs on Wispr\'s servers. Any money you pay still goes to Wispr Flow.',
+    'children:"Wispr Flow webpage"',
+    'Logged in with Wispr account',
+  ].join(' ');
+  const next = replaceBrand(about);
+  assert.match(next, /Wispr Flow is a great dictation app/);
+  assert.match(next, /Shoutr is a Linux client/);
+  assert.match(next, /your own Wispr account/);
+  assert.match(next, /Wispr's servers/);
+  assert.match(next, /goes to Wispr Flow/);
+  assert.match(next, /children:"Wispr Flow webpage"/);
+  assert.match(next, /Logged in with Wispr account/);
+});
+
 test('paths, hosts, and identifiers stay', () => {
   const profile = 'o().join(i().homedir(),".config"),"Wispr Flow"';
   assert.equal(replaceBrand(profile), profile);

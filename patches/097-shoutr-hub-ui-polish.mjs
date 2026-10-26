@@ -13,7 +13,7 @@ function aboutParagraph(text) {
 // Plain <a target="_blank"> stays inside the hub. Open these in the system browser.
 function aboutLink(href, label) {
   const url = JSON.stringify(href);
-  return `(0,de.jsx)("a",{href:${url},target:"_blank",rel:"noopener noreferrer",style:{color:"var(--primary)",cursor:"pointer"},onClick:e=>{e.preventDefault(),window.electron.shell.openExternal(${url})},children:${JSON.stringify(label)}})`;
+  return `(0,de.jsx)("a",{href:${url},target:"_blank",rel:"noopener noreferrer",style:{color:"var(--primary)",cursor:"pointer",textDecoration:"none"},onClick:e=>{e.preventDefault(),window.electron.shell.openExternal(${url})},children:${JSON.stringify(label)}})`;
 }
 
 const aboutPage =
@@ -21,7 +21,7 @@ const aboutPage =
   [
     aboutParagraph(aboutLead),
     aboutParagraph(aboutFollow),
-    `(0,de.jsxs)("p",{style:{margin:0,lineHeight:1.65},children:[${aboutLink('https://github.com/13pixlar/shoutr', 'GitHub')}," · ",${aboutLink('https://wisprflow.com', 'Wispr ❤️')}]})`,
+    `(0,de.jsxs)("div",{style:{display:"flex",flexDirection:"column",gap:8,lineHeight:1.65},children:[${aboutLink('https://github.com/13pixlar/shoutr', 'Shoutr on GitHub')},${aboutLink('https://wisprflow.com', 'Wispr Flow webpage')}]})`,
   ].join(',') +
   ']}),surface:Q.z6.ExtensionsHome};';
 

@@ -274,13 +274,14 @@ export function replaceBrand(text) {
     if (source.slice(offset - 6, offset) === 'Wispr ') return match;
     return 'Shoutr';
   });
-  // Shoutr-only About page and account menu lines must keep Wispr as the service vendor.
+  // The About page names Wispr as the app people pay for. Branding rewrites
+  // that to Shoutr first; these phrases put the vendor name back.
   const vendorCredit = [
-    ['simple Linux port of Shoutr', 'simple Linux port of Wispr Flow'],
-    ['compete with Shoutr or', 'compete with Wispr or'],
-    ['sign in with your Shoutr account', 'sign in with your Wispr Flow account'],
-    ['runs on Shoutr servers', 'runs on Wispr servers'],
-    ['team at Shoutr for', 'team at Wispr Flow for'],
+    ['Shoutr is a great dictation app', 'Wispr Flow is a great dictation app'],
+    ['your own Shoutr account', 'your own Wispr account'],
+    ["runs on Shoutr's servers", "runs on Wispr's servers"],
+    ['Any money you pay still goes to Shoutr.', 'Any money you pay still goes to Wispr Flow.'],
+    ['children:"Shoutr webpage"', 'children:"Wispr Flow webpage"'],
     ['Logged in with Shoutr account', 'Logged in with Wispr account'],
   ];
   for (const [from, to] of vendorCredit) {
@@ -517,7 +518,25 @@ export function applyBrand(workDir) {
   if (!main.includes('.config"),"Wispr Flow"')) {
     throw new Error('The profile directory was renamed. It has to stay Wispr Flow so the existing account opens.');
   }
+  copyMascots(workDir);
   console.log(`  branded visible copy (saw ${flow} "Wispr Flow" and ${wispr} "Wispr" before the pass) and ${logos} waveform icons`);
+}
+
+// The hub pages reference these by a path next to the other renderer media.
+// Repack starts from a fresh extract, so the copy has to happen here.
+function copyMascots(workDir) {
+  const dest = path.join(workDir, '.webpack/renderer/static/media');
+  fs.mkdirSync(dest, { recursive: true });
+  for (const name of [
+    'shouter-about.png',
+    'shouter-insights.png',
+    'shouter-dictation.png',
+    'shouter-dictionary.png',
+  ]) {
+    const from = path.join(root, 'img', name);
+    if (!fs.existsSync(from)) throw new Error(`Missing mascot image: ${from}`);
+    fs.copyFileSync(from, path.join(dest, name));
+  }
 }
 
 export function applyResourceIcons(resourcesDir) {
