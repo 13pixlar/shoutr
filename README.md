@@ -1,10 +1,14 @@
-# Shoutr
+# Shouter - Wispr Flow for Linux
+
+<img src="img/shouter-sidebar-wispr-hug.png" width="200" align="right" alt="Shouter holding a phone">
 
 [Wispr Flow](https://wisprflow.com) is a great dictation app. You hold a key, talk, and it types into the window in front of you. It ships for macOS and Windows, and it lacks Linux support.
 
 Shoutr is a Linux client for that same dictation, for GNOME, including Wayland. It is a project made in good faith. You sign in with your own Wispr account, and the speech still runs on Wispr's servers. Any money you pay still goes to Wispr Flow.
 
 Push-to-talk types into the focused window.
+
+<br clear="right">
 
 ## Use it
 
