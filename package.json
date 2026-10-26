@@ -2,7 +2,7 @@
   "name": "shoutr",
   "version": "0.0.0",
   "private": true,
-  "description": "Shouter - Wispr Flow for Linux",
+  "description": "Shoutr - Wispr Flow for Linux",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

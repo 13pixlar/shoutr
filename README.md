@@ -1,4 +1,4 @@
-# Shouter - Wispr Flow for Linux
+# Shoutr - Wispr Flow for Linux
 
 <img src="img/shouter-sidebar-wispr-hug.png" width="200" align="right" alt="Shouter holding a phone">
 
