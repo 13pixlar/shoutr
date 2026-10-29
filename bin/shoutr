@@ -1,15 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Launch Shoutr. From a checkout this is bin/shoutr. After ./install.sh the
 # same file is /usr/bin/shoutr and the binary lives in /usr/lib/shoutr.
 #
 # The renamed binary loads resources/app.asar on its own. Passing the archive
 # as an argument would mark the app unpackaged, so this script never does that.
 #
-# On a Wayland session the window stays an XWayland client. That is the
-# arrangement the hub patches were tried with. Paste and push-to-talk do not
-# use the window's toolkit: they use /dev/uinput and the real keyboards.
-# SHOUTR_USE_WAYLAND=1 asks Electron for a native Wayland window instead.
-# SHOUTR_USE_X11=1 keeps XWayland when both are set.
+# On a Wayland session the window uses native Wayland by default. Paste and
+# push-to-talk do not use the window toolkit: they use /dev/uinput and the
+# real keyboards. SHOUTR_USE_X11=1 keeps XWayland. SHOUTR_OZONE_PLATFORM
+# sets wayland or x11 explicitly.
 
 set -euo pipefail
 
@@ -86,17 +85,27 @@ export ELECTRON_FORCE_IS_PACKAGED=true
 unset ELECTRON_RUN_AS_NODE
 
 ozone=(--ozone-platform=x11)
-if [[ ${SHOUTR_USE_WAYLAND:-} == 1 && ${SHOUTR_USE_X11:-} != 1 ]]; then
+if [[ -n ${SHOUTR_OZONE_PLATFORM:-} ]]; then
+	if [[ $SHOUTR_OZONE_PLATFORM == wayland ]]; then
+		ozone=(
+			--enable-features=UseOzonePlatform,WaylandWindowDecorations
+			--ozone-platform=wayland
+			--enable-wayland-ime
+		)
+	else
+		ozone=(--ozone-platform=x11)
+	fi
+	printf 'shoutr: ozone-platform=%s (SHOUTR_OZONE_PLATFORM)\n' "$SHOUTR_OZONE_PLATFORM" >&2
+elif [[ ${SHOUTR_USE_X11:-} == 1 ]]; then
+	printf 'shoutr: Wayland session, window on XWayland (SHOUTR_USE_X11)\n' >&2
+elif [[ -n ${WAYLAND_DISPLAY:-} || ${SHOUTR_USE_WAYLAND:-} == 1 ]]; then
 	ozone=(
 		--enable-features=UseOzonePlatform,WaylandWindowDecorations
 		--ozone-platform=wayland
 		--enable-wayland-ime
 	)
 	printf 'shoutr: native Wayland window\n' >&2
-elif [[ -n ${WAYLAND_DISPLAY:-} ]]; then
-	printf 'shoutr: Wayland session, window on XWayland\n' >&2
 fi
-
 printf 'shoutr: logging to %s\n' "$log_file" >&2
 if [[ $SHOUTR_LAYOUT == checkout ]]; then
 	cd "$(dirname "$SHOUTR_BINARY")/.."

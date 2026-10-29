@@ -284,7 +284,7 @@ Static work (steps 1–4) is done. Steps 5 onward run the app on this machine. E
 5. **Pass 1: launch on Linux.** Done. With 1.6.957 quit, `bin/shoutr` opened the existing profile, the hub was logged as shown, the stored account was already signed in, and the stub helper stayed ready. Dictation is Pass 2. The database is the one 1.6.1209 already migrated. Leave 1.6.957 quit while this build is running.
 6. **Pass 2: dictation.** Done. Ctrl+Space records, the transcript shows in the hub, the text stays on the clipboard, and it is pasted into the focused text box. The hub can be moved and minimized. The muted-mic toast can be clicked, and Space from the shortcut does not land in the text box. See Pass 2 progress.
 7. **Pass 3: context features.** Done for controls AT-SPI can read. The focused app is named, and a caret's surrounding text is pushed when dictation starts. A control with no caret, including Cursor's editor and a Firefox page, still has no text context. The browser URL is still empty. See Pass 3 progress.
-8. **Pass 4: our own changes.** Underway. The Linux window name, tray raise, Shoutr copy, waveform marks, midnight-navy theme, and desktop launcher are done (see Pass 4 progress). Remaining functional work is caret-less text context (Pass 3 leftover), then native Wayland.
+8. **Pass 4: our own changes.** Underway. The Linux window name, tray raise, Shoutr copy, waveform marks, midnight-navy theme, desktop launcher, status toast colors, and native Wayland launch are done (see Pass 4 progress). Remaining functional work is caret-less text context (Pass 3 leftover).
 9. **Compare builds only if a behavior is unclear.** Download 1.6.531 and compare. Until then, one version is enough.
 
 ## Pass 1 plan: launch on Linux
@@ -365,6 +365,7 @@ Decisions, 22 October 2026: the helper is written in Python, because `evdev` and
 - **Left-edge mouse dead zone. Observed.** The status window stays mapped after the hub is closed. With `statusDockEdge: "left"` it is a 490x1144 override-redirect toolbar at `+0+148`. Alpha sampling throws `UnknownVizError`, the input shape is 1x1, and XWayland still delivers clicks to that slab. `hideFlowBarPermanently` is true, so the bar itself is empty. `patches/080-linux-status-park.mjs` uses a normal window and parks it offscreen until BarVisible or EnableMouseEvents. Closing the hub used to remap the slab; the show handler now puts it back offscreen. After the patch the window stayed `IsUnMapped` at `-2000,-2000` with the hub closed.
 - **Desktop launcher. Observed.** `desktop/shoutr.desktop` and `desktop/install_launcher.py` install `~/.local/share/applications/shoutr.desktop` with `Exec` pointing at this tree's `bin/shoutr`, and copy `img/app_icon_embossed.png` to `~/.local/share/icons/hicolor/512x512/apps/shoutr.png`. `StartupWMClass=shoutr` matches `setDesktopName("shoutr.desktop")`. Run `npm run install-desktop` after cloning or moving the repo.
 - **Status toasts on navy. Observed.** The language nudge card used `background:var(--neutral-900)`, and the readable neutral map had pointed that step at `--foreground`, so the toast looked like a light sheet. `retintNeutralUsage` in `tools/brand.mjs` now maps neutral steps to navy surfaces when they are used as backgrounds and keeps the lifted ink when they are used as text. Repack applies it to the status bundle too.
+- **Native Wayland. Observed.** `bin/shoutr` now opens a native Wayland window when `WAYLAND_DISPLAY` is set (with Wayland decorations and IME flags). `SHOUTR_USE_X11=1` or `SHOUTR_OZONE_PLATFORM=x11` keeps XWayland. Quit any older X11 instance before switching so `SingletonLock` is free. Dictation, paste, and the GNOME window bridge were not re-tested on this pass.
 
 ### Working with the tools
 
@@ -372,7 +373,7 @@ Decisions, 22 October 2026: the helper is written in Python, because `evdev` and
 - `npm run stage` copies Electron's dist to `build/shoutr`. It does not touch `app.asar`.
 - `npm run native` builds `build/native/node_sqlite3.node`.
 - `npm run repack` rebuilds `build/resources/app.asar` from the vendor archive and `patches/*.mjs`, overlays that sqlite build, and extracts `migrations/` and `assets/` beside the archive. It then writes the Shoutr name, theme, and icons (`tools/brand.mjs`, reading `img/`). It always starts from a fresh extraction, so `work/app/` can be read freely but should never be edited by hand. Repack fails if the sqlite build is missing. A clean checkout needs the vendor tree under `payload/` (see **Artifacts on this machine**); it is gitignored.
-- `npm start` runs `bin/shoutr`. It opens the database in `~/.config/Wispr Flow` even when a different `--user-data-dir` is passed. That directory is the installed app's database. Quit the installed `wispr-flow` package before starting Shoutr so `SingletonLock` is free. On a Wayland session the launcher uses native Wayland unless `SHOUTR_OZONE_PLATFORM` is set.
+- `npm start` runs `bin/shoutr`. It opens the database in `~/.config/Wispr Flow` even when a different `--user-data-dir` is passed. That directory is the installed app's database. Quit the installed `wispr-flow` package before starting Shoutr so `SingletonLock` is free. On a Wayland session the launcher uses native Wayland unless `SHOUTR_USE_X11=1` or `SHOUTR_OZONE_PLATFORM=x11`.
 - `npm run install-desktop` writes the GNOME launcher and icon under `~/.local/share/`. Re-run it if the project directory moves.
 - If the helper exits with `ModuleNotFoundError: evdev`, the system package is missing and `vendor/python3-dist` did not import. On Debian, Ubuntu, and apt derivatives, start `shoutr` from a terminal so it can run `sudo apt-get install python3-evdev`. `bash helper/test_evdev_setup.sh` checks that choice.
 - `npm run schema` regenerates `work/helper-schema.json` and `work/helper-protocol.md`. Read the Markdown file before writing any helper handler.
@@ -445,7 +446,7 @@ It then installs the apt packages (Wayland and X11 clipboards, Python evdev, AT-
 
 The helper uses the distro `evdev` when that import works. `vendor/python3-dist` is used only when that copy itself imports, so an Ubuntu 22 build is not forced onto a newer Python. On Debian, Ubuntu, and apt derivatives, `shoutr` installs `python3-evdev` when neither copy imports. Fedora, Arch, and openSUSE are left to their own package commands.
 
-Windows stay on XWayland when the session is Wayland. That is the path the hub patches were tried on. `SHOUTR_USE_WAYLAND=1` asks Electron for a native Wayland window. Paste and the shortcut use the virtual keyboard either way.
+On a Wayland session the launcher uses native Wayland by default. `SHOUTR_USE_X11=1` keeps XWayland if something regresses. Paste and the shortcut use the virtual keyboard either way.
 
 Log out once if `--doctor` says `/dev/uinput` is not writable. Quit an installed `wispr-flow` before starting Shoutr; they share `~/.config/Wispr Flow`.
 
