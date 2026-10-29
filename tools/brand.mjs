@@ -432,6 +432,39 @@ export function retintNeutralUsage(text) {
   );
 }
 
+// Warning and success callouts still use light --orange-100 / --green-50 steps as
+// sheet backgrounds. Those tokens stay in the palette for icons; only backgrounds
+// are moved onto navy with a hint of the status color.
+const SEMANTIC_ACCENT = {
+  orange: 'var(--warning)',
+  yellow: 'var(--warning)',
+  flare: 'var(--warning)',
+  glow: 'var(--warning)',
+  green: 'var(--success)',
+  blue: 'var(--info)',
+  red: 'var(--destructive)',
+  signal: 'var(--recording-foreground)',
+};
+
+const LIGHT_SEMANTIC_STEPS = new Set([50, 100, 200]);
+
+export function retintSemanticSurfaces(text) {
+  text = text.replace(
+    /(?<![-\w])(background(?:-color)?)(\s*:\s*)var\(--([a-z]+)-(\d+)\)/g,
+    (match, prop, space, family, stepStr) => {
+      const step = Number(stepStr);
+      if (!LIGHT_SEMANTIC_STEPS.has(step)) return match;
+      const accent = SEMANTIC_ACCENT[family];
+      if (!accent) return match;
+      return `${prop}${space}color-mix(in srgb, ${accent} 18%, var(--background-secondary))`;
+    },
+  );
+  return text.replaceAll(
+    'background-color:color-mix(in srgb, var(--orange-100), var(--vast-950) 8%)',
+    'background-color:color-mix(in srgb, var(--warning) 18%, var(--background-secondary))',
+  );
+}
+
 export function retintRoles(text) {
   text = text.replace(
     /(?<![-\w])(color|fill|stroke|caret-color)(\s*:\s*)var\(--(shade-white|background|background-secondary|background-tertiary|card|popover|pure-black)\)/g,
@@ -475,7 +508,7 @@ export function retheme(text) {
     if (!color) throw new Error(`No Shoutr color for ${name}-${step}`);
     return `--${name}-${step}: ${color}`;
   });
-  next = retintNeutralUsage(retintRoles(retintHardcoded(next)));
+  next = retintSemanticSurfaces(retintNeutralUsage(retintRoles(retintHardcoded(next))));
   next = replaceOnce(next, '}html[data-theme-transition=fade]', `}${EXTRA}html[data-theme-transition=fade]`, 'focus and motion');
   for (const step of Object.keys(STEPS)) {
     if (!FAMILIES[step]) throw new Error(`Missing family ${step}`);

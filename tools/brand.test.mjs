@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { replaceBrand, retheme, retintNeutralUsage, retintRoles } from './brand.mjs';
+import { replaceBrand, retheme, retintNeutralUsage, retintRoles, retintSemanticSurfaces } from './brand.mjs';
 
 test('visible product names become Shoutr', () => {
   assert.equal(replaceBrand('Open Wispr Flow'), 'Open Shoutr');
@@ -45,6 +45,14 @@ test('paths, hosts, and identifiers stay', () => {
   assert.equal(replaceBrand('e.WisprContacts'), 'e.WisprContacts');
   assert.equal(replaceBrand('menus_open_wispr_flow'), 'menus_open_wispr_flow');
   assert.equal(replaceBrand('Wispr:"wispr"'), 'Wispr:"wispr"');
+});
+
+test('light semantic steps become navy warning sheets when used as backgrounds', () => {
+  const sample = 'background:var(--orange-100);background-color:var(--green-50);color:var(--orange-700)';
+  const next = retintSemanticSurfaces(sample);
+  assert.match(next, /background:color-mix\(in srgb, var\(--warning\) 18%, var\(--background-secondary\)\)/);
+  assert.match(next, /background-color:color-mix\(in srgb, var\(--success\) 18%, var\(--background-secondary\)\)/);
+  assert.match(next, /color:var\(--orange-700\)/);
 });
 
 test('neutral steps keep navy surfaces when used as toast backgrounds', () => {
