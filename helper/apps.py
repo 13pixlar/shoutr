@@ -236,6 +236,88 @@ def open_session_bus(runtime_dir):
     return Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
 
+# Toolkits that hide their tree (Firefox) watch this property. It is not
+# ScreenReaderEnabled: that one starts Orca, and it still does not give
+# Cursor's editor a caret.
+STATUS_BUS = "org.a11y.Bus"
+STATUS_PATH = "/org/a11y/bus"
+STATUS_INTERFACE = "org.a11y.Status"
+ENABLED_PROPERTY = "IsEnabled"
+
+
+def accessibility_enabled(connection):
+    """The current IsEnabled value. A missing bus reads as false."""
+    from gi.repository import Gio, GLib
+
+    result = connection.call_sync(
+        STATUS_BUS,
+        STATUS_PATH,
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        GLib.Variant("(ss)", (STATUS_INTERFACE, ENABLED_PROPERTY)),
+        GLib.VariantType.new("(v)"),
+        Gio.DBusCallFlags.NONE,
+        400,
+        None,
+    )
+    value = result.unpack()[0]
+    return bool(value)
+
+
+def set_accessibility_enabled(connection, enabled):
+    """Set IsEnabled. Never call this with ScreenReaderEnabled."""
+    from gi.repository import Gio, GLib
+
+    connection.call_sync(
+        STATUS_BUS,
+        STATUS_PATH,
+        "org.freedesktop.DBus.Properties",
+        "Set",
+        GLib.Variant(
+            "(ssv)",
+            (STATUS_INTERFACE, ENABLED_PROPERTY, GLib.Variant("b", bool(enabled))),
+        ),
+        None,
+        Gio.DBusCallFlags.NONE,
+        400,
+        None,
+    )
+
+
+class AccessibilitySwitch:
+    """Turn IsEnabled on for this process, and put the old value back.
+
+    If it was already on, another client asked for it and this process
+    leaves it on. restore() is a no-op in that case.
+    """
+
+    def __init__(self, get_enabled, set_enabled):
+        self._get = get_enabled
+        self._set = set_enabled
+        self.turned_on = False
+
+    def enable(self):
+        if self._get():
+            self.turned_on = False
+            return
+        self._set(True)
+        self.turned_on = True
+
+    def restore(self):
+        if not self.turned_on:
+            return
+        self._set(False)
+        self.turned_on = False
+
+    @classmethod
+    def open(cls, runtime_dir):
+        connection = open_session_bus(runtime_dir)
+        return cls(
+            lambda: accessibility_enabled(connection),
+            lambda enabled: set_accessibility_enabled(connection, enabled),
+        )
+
+
 class AppWatch:
     """Focused app, the running list, and focus changes worth sending."""
 
@@ -253,6 +335,10 @@ class AppWatch:
         self._box_bundle = None
         self._box_sig = None
         self._box_has_caret = False
+        # Last http(s) page address for this bundle. A fresh describe()
+        # starts at "", and the walk fills it. The address is not logged.
+        self._page_url = ""
+        self._page_bundle = ""
         self.dictating = False
         self.detector = False
 
@@ -270,12 +356,20 @@ class AppWatch:
             self._current = None
             return None
         app = describe(info, self._names.name)
+        if app and app.get("bundleId") == self._page_bundle:
+            app["url"] = self._page_url
         self._current = app
         return app
 
     def textbox_for(self, app):
         pid = app["pid"] if app else 0
-        found = textbox.read_for_pid(pid)
+        found, url = textbox.read_context(pid)
+        if not isinstance(url, str):
+            url = ""
+        if app is not None:
+            app["url"] = url
+            self._page_url = url
+            self._page_bundle = app.get("bundleId") or ""
         if found is None:
             missing = dict(textbox.UNAVAILABLE)
             # The bus can be up while this control has no caret. The app

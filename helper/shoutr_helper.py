@@ -22,7 +22,7 @@ when the focused app changes and again when a dictation starts, because
 the app clears its copy at the start. Every other request still gets
 HelperAPIError. Values are never logged: a PasteText payload contains
 whatever the user dictated, key codes would reconstruct what they typed,
-and a window title or text-box read is the user's own text.
+and a window title, a page address, or text-box read is the user's own text.
 """
 
 import json
@@ -460,7 +460,16 @@ def main():
         paste.keyboard.ensure(log)
     relay, grabbed = start_swallow(devices, log, paste_enabled)
     home = pwd.getpwuid(os.getuid()).pw_dir
-    watch = apps.AppWatch(f"/run/user/{os.getuid()}", home, log)
+    runtime_dir = f"/run/user/{os.getuid()}"
+    watch = apps.AppWatch(runtime_dir, home, log)
+    a11y = None
+    try:
+        a11y = apps.AccessibilitySwitch.open(runtime_dir)
+        a11y.enable()
+        log.write("accessibility enabled" if a11y.turned_on else "accessibility already enabled")
+    except Exception as error:
+        log.write(f"accessibility status unchanged: {error.__class__.__name__}")
+        a11y = None
 
     framer = Framer()
     watched = [0] + [device.fd for device in devices]
@@ -498,6 +507,11 @@ def main():
                     log.write("fd 3 closed, exiting")
                     return 0
     finally:
+        if a11y is not None:
+            try:
+                a11y.restore()
+            except Exception as error:
+                log.write(f"accessibility restore failed: {error.__class__.__name__}")
         if relay is not None and not relay.disabled:
             relay.release_all()
         for device in grabbed:
@@ -506,54 +520,24 @@ def main():
     return 0
 
 
-def publish_focus(fd, log, watch):
-    """Tell the app when the focused window changes, and refresh caret text.
+def app_update_note(app):
+    """Log line for one AppInfoUpdate. The page address stays out of it."""
+    return f"AppInfoUpdate -> {app['bundleId']} url={textbox.url_scheme(app.get('url') or '')}"
 
-    The hub stores the app from AppInfoUpdate. Polling is enough: the bridge
-    call is one round trip, and a repeat of the same id and title is not sent.
-    The caret walk runs on this same thread, so it runs when the focused app
-    changes and, while a dictation is open, when that app has a caret.
-    """
+
+def send_app_update(fd, log, app):
     try:
-        changed = watch.poll()
-    except Exception as error:
-        log.write(f"focus poll failed: {error.__class__.__name__}")
-        return
-    if changed is not None:
-        try:
-            send_request(fd, apps.update_request(changed))
-        except BrokenPipeError:
-            raise
-        except OSError as error:
-            log.write(f"AppInfoUpdate failed: {error.__class__.__name__}")
-            return
-        log.write(f"AppInfoUpdate -> {changed['bundleId']}")
-    publish_textbox(fd, log, watch, force=False)
-
-
-def publish_textbox(fd, log, watch, force=False):
-    """Push TextBoxInfo when the caret snapshot changes.
-
-    force is for DictationStart: the app has just cleared the stored copy,
-    so the same text has to be sent again. Lengths are logged. The text is not.
-    """
-    if force:
-        try:
-            watch.focused()
-        except Exception as error:
-            log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
-            return
-    if not force and not watch.wants_textbox_poll():
-        return
-    try:
-        box = watch.textbox_for(watch.current())
+        send_request(fd, apps.update_request(app))
     except BrokenPipeError:
         raise
-    except Exception as error:
-        log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
-        return
-    if not force and not watch.box_changed(box):
-        return
+    except OSError as error:
+        log.write(f"AppInfoUpdate failed: {error.__class__.__name__}")
+        return False
+    log.write(app_update_note(app))
+    return True
+
+
+def send_textbox(fd, log, watch, box):
     try:
         send_request(fd, textbox.update_request(box))
     except BrokenPipeError:
@@ -569,6 +553,70 @@ def publish_textbox(fd, log, watch, force=False):
             f"TextBoxInfo -> before={len(box['beforeText'])} "
             f"selected={len(box['selectedText'])} after={len(box['afterText'])}"
         )
+
+
+def publish_focus(fd, log, watch):
+    """Tell the app when the focused window changes, and refresh caret text.
+
+    The hub stores the app from AppInfoUpdate. Polling is enough: the bridge
+    call is one round trip, and a repeat of the same id and title is not sent.
+    The caret walk runs on this same thread, so it runs when the focused app
+    changes and, while a dictation is open, when that app has a caret.
+    One walk fills both the page URL and the text box, and the app update
+    goes out after that walk so the URL is already on it.
+    """
+    try:
+        changed = watch.poll()
+    except Exception as error:
+        log.write(f"focus poll failed: {error.__class__.__name__}")
+        return
+    if changed is not None:
+        box = None
+        try:
+            box = watch.textbox_for(changed)
+        except BrokenPipeError:
+            raise
+        except Exception as error:
+            log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
+        if not send_app_update(fd, log, changed):
+            return
+        if box is not None:
+            send_textbox(fd, log, watch, box)
+        return
+    publish_textbox(fd, log, watch, force=False)
+
+
+def publish_textbox(fd, log, watch, force=False):
+    """Push TextBoxInfo when the caret snapshot changes.
+
+    force is for DictationStart: the app has just cleared the stored copy,
+    so the same text has to be sent again. The same walk refreshes the page
+    URL, and a new address is sent even when the window title did not change.
+    Lengths are logged. The text and the address are not.
+    """
+    if force:
+        try:
+            watch.focused()
+        except Exception as error:
+            log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
+            return
+    if not force and not watch.wants_textbox_poll():
+        return
+    app = watch.current()
+    previous = (app or {}).get("url") or ""
+    try:
+        box = watch.textbox_for(app)
+    except BrokenPipeError:
+        raise
+    except Exception as error:
+        log.write(f"TextBoxInfo failed: {error.__class__.__name__}")
+        return
+    if app is not None and (app.get("url") or "") != previous:
+        if not send_app_update(fd, log, app):
+            return
+    if not force and not watch.box_changed(box):
+        return
+    send_textbox(fd, log, watch, box)
 
 
 def start_swallow(devices, log, paste_enabled):

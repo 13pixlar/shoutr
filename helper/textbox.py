@@ -1,19 +1,23 @@
 """Text on either side of the caret, through AT-SPI.
 
 The focused window's process id comes from the GNOME bridge. Only that
-app's accessibility tree is walked, and only until a focused control with
-a caret is found. A GTK terminal does that. A Firefox page often reports
-the document as focused and leaves the caret at -1, and then this returns
-the same empty result the app already uses when the helper has no answer.
+app's accessibility tree is walked. A GTK terminal exposes a caret. A
+Firefox page often reports the document as focused and leaves the caret
+at -1; the page body is not a text box. An editable field under that
+document is, when the field itself has a caret. The same walk reads the
+document's URI or DocURL. Only an http or https address is returned.
+Cursor's vscode-file URI is not a page.
 
 The same payload is what the helper pushes as a TextBoxInfo request.
 Dictation reads that stored copy, and the app clears it when a dictation
 starts, so the push has to happen again after that clear.
 
-The text itself is never logged. Callers log lengths.
+The text itself is never logged, and neither is the page address.
+Callers log lengths and the URL scheme.
 """
 
 import uuid
+import warnings
 
 # Sent when no focused control has a caret. Same fields the app substitutes
 # if the request fails, so paste keeps the path it already has.
@@ -55,8 +59,63 @@ def update_request(box):
     }
 
 
-def find_focused_text(root, node_limit=2000, depth_limit=12):
-    """The deepest focused node whose caret() is zero or more."""
+def http_url(value):
+    """An http(s) address, or "" for anything else.
+
+    vscode-file and file URIs name a local path. They are not the browser
+    page, so they stay out of the app update.
+    """
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    lowered = text.lower()
+    if lowered.startswith("https://") or lowered.startswith("http://"):
+        return text
+    return ""
+
+
+def url_scheme(url):
+    """What the log may say about a page address. Never the address itself."""
+    if not isinstance(url, str):
+        return "empty"
+    lowered = url.lower()
+    if lowered.startswith("https://"):
+        return "https"
+    if lowered.startswith("http://"):
+        return "http"
+    return "empty"
+
+
+def _page_url(node):
+    """http(s) URI, or else http(s) DocURL, on this node."""
+    for name in ("URI", "DocURL"):
+        try:
+            found = http_url(node.document_attribute(name))
+        except Exception:
+            found = ""
+        if found:
+            return found
+    return ""
+
+
+def _document_url(node):
+    """Page address of this node or one of its ancestors. The address is not logged."""
+    current = node
+    for _hop in range(8):
+        if current is None:
+            return ""
+        found = _page_url(current)
+        if found:
+            return found
+        try:
+            current = current.parent()
+        except Exception:
+            return ""
+    return ""
+
+
+def _editable_caret(root, node_limit, depth_limit):
+    """Deepest editable descendant with a caret. The root itself does not count."""
     best = None
 
     def walk(node, depth, budget):
@@ -64,10 +123,15 @@ def find_focused_text(root, node_limit=2000, depth_limit=12):
         if node is None or budget[0] <= 0 or depth > depth_limit:
             return
         budget[0] -= 1
-        caret = node.caret()
-        if node.is_focused() and isinstance(caret, int) and caret >= 0:
-            if best is None or depth >= best[0]:
-                best = (depth, node)
+        if depth > 0:
+            try:
+                editable = node.editable()
+                caret = node.caret()
+            except Exception:
+                editable, caret = False, -1
+            if editable and isinstance(caret, int) and caret >= 0:
+                if best is None or depth >= best[0]:
+                    best = (depth, node)
         count = node.child_count()
         for index in range(count):
             if budget[0] <= 0:
@@ -76,6 +140,57 @@ def find_focused_text(root, node_limit=2000, depth_limit=12):
 
     walk(root, 0, [node_limit])
     return None if best is None else best[1]
+
+
+def context_from(root, node_limit=2000, depth_limit=12):
+    """The caret node, if there is one, and the focused document's page URL.
+
+    A focused caret wins. Otherwise an editable descendant of the focused
+    node can supply the caret. A focused page with neither stays empty:
+    its body is not a text box. The URL is still returned when it is http(s).
+    """
+    best = None
+    focused = None
+
+    def walk(node, depth, budget):
+        nonlocal best, focused
+        if node is None or budget[0] <= 0 or depth > depth_limit:
+            return
+        budget[0] -= 1
+        try:
+            is_focused = node.is_focused()
+            caret = node.caret()
+        except Exception:
+            is_focused, caret = False, -1
+        if is_focused:
+            if focused is None or depth >= focused[0]:
+                focused = (depth, node)
+            if isinstance(caret, int) and caret >= 0:
+                if best is None or depth >= best[0]:
+                    best = (depth, node)
+        count = node.child_count()
+        for index in range(count):
+            if budget[0] <= 0:
+                return
+            walk(node.child_at(index), depth + 1, budget)
+
+    walk(root, 0, [node_limit])
+    url = ""
+    if focused is not None:
+        url = _document_url(focused[1])
+    if best is not None:
+        return best[1], url
+    if focused is not None:
+        fallback = _editable_caret(focused[1], node_limit, depth_limit)
+        if fallback is not None:
+            return fallback, url
+    return None, url
+
+
+def find_focused_text(root, node_limit=2000, depth_limit=12):
+    """The caret node from context_from, or None when the page has no caret."""
+    node, _url = context_from(root, node_limit, depth_limit)
+    return node
 
 
 def textbox_from(node, margin=8000):
@@ -123,7 +238,7 @@ def textbox_from(node, margin=8000):
         "beforeText": before,
         "contents": before + selected + after,
         "couldNotGetTextBoxInfo": False,
-        "isEditable": True,
+        "isEditable": bool(node.editable()),
         "selectedText": selected,
     }
 
@@ -142,6 +257,34 @@ class AtspiView:
             return self._node.get_state_set().contains(Atspi.StateType.FOCUSED)
         except Exception:
             return False
+
+    def editable(self):
+        from gi.repository import Atspi
+
+        try:
+            return self._node.get_state_set().contains(Atspi.StateType.EDITABLE)
+        except Exception:
+            return False
+
+    def document_attribute(self, name):
+        from gi.repository import Atspi
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                value = Atspi.Document.get_document_attribute_value(self._node, name)
+        except Exception:
+            return ""
+        return value if isinstance(value, str) else ""
+
+    def parent(self):
+        try:
+            parent = self._node.get_parent()
+        except Exception:
+            return None
+        if parent is None:
+            return None
+        return AtspiView(parent, self._child_limit)
 
     def caret(self):
         try:
@@ -198,19 +341,23 @@ def accessibility_up():
         return False
 
 
-def read_for_pid(pid):
-    """Text box for one process, or None when that process has no caret."""
+def read_context(pid):
+    """Text box and page URL for one process.
+
+    The box is None when that process has no caret. The URL is "" when the
+    focused document has no http(s) address. Either can be present alone.
+    """
     if not isinstance(pid, int) or pid <= 0:
-        return None
+        return None, ""
     try:
         desktop = _atspi_desktop()
     except Exception:
-        return None
+        return None, ""
     root = None
     try:
         count = desktop.get_child_count()
     except Exception:
-        return None
+        return None, ""
     for index in range(count):
         try:
             app = desktop.get_child_at_index(index)
@@ -226,11 +373,20 @@ def read_for_pid(pid):
         root = AtspiView(app)
         break
     if root is None:
-        return None
-    node = find_focused_text(root)
+        return None, ""
+    node, url = context_from(root)
     if node is None:
-        return None
-    return textbox_from(node)
+        return None, url
+    box = textbox_from(node)
+    if box is None:
+        return None, url
+    return box, url
+
+
+def read_for_pid(pid):
+    """Text box for one process, or None when that process has no caret."""
+    box, _url = read_context(pid)
+    return box
 
 
 def _atspi_desktop():

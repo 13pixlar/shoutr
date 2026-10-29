@@ -24,15 +24,42 @@ Exec=firefox
 
 
 class FakeNode:
-    def __init__(self, focused, text="", caret=-1, children=(), selections=()):
+    def __init__(
+        self,
+        focused,
+        text="",
+        caret=-1,
+        children=(),
+        selections=(),
+        editable=True,
+        uri="",
+        doc_url="",
+    ):
         self._focused = focused
         self._text = text
         self._caret = caret
         self._children = list(children)
         self._selections = list(selections)
+        self._editable = editable
+        self._uri = uri
+        self._doc_url = doc_url
+        self._parent = None
 
     def is_focused(self):
         return self._focused
+
+    def editable(self):
+        return self._editable
+
+    def document_attribute(self, name):
+        if name == "URI":
+            return self._uri
+        if name == "DocURL":
+            return self._doc_url
+        return ""
+
+    def parent(self):
+        return self._parent
 
     def caret(self):
         return self._caret
@@ -50,7 +77,9 @@ class FakeNode:
         return len(self._children)
 
     def child_at(self, index):
-        return self._children[index]
+        child = self._children[index]
+        child._parent = self
+        return child
 
 
 class FakeBridge:
@@ -109,6 +138,32 @@ def reply(request, watch):
         os.close(read_fd)
     body = shoutr_helper.unescape(raw[:-1])
     return json.loads(body)["HelperAPIResponse"]
+
+
+class AccessibilitySwitchTest(unittest.TestCase):
+    def test_enable_turns_it_on_only_when_it_was_off(self):
+        state = {"on": False}
+        calls = []
+
+        def set_enabled(value):
+            calls.append(value)
+            state["on"] = value
+
+        switch = apps.AccessibilitySwitch(lambda: state["on"], set_enabled)
+        switch.enable()
+        self.assertEqual(calls, [True])
+        self.assertTrue(switch.turned_on)
+        switch.restore()
+        self.assertEqual(calls, [True, False])
+        self.assertFalse(switch.turned_on)
+
+    def test_an_existing_client_is_left_on(self):
+        calls = []
+        switch = apps.AccessibilitySwitch(lambda: True, calls.append)
+        switch.enable()
+        switch.restore()
+        self.assertEqual(calls, [])
+        self.assertFalse(switch.turned_on)
 
 
 class DesktopNameTest(unittest.TestCase):
@@ -329,6 +384,62 @@ class ReplyTest(unittest.TestCase):
         self.assertEqual(self.kind(stopped[0]), "ACK")
         self.assertFalse(self.watch.dictating)
 
+    def test_a_page_url_is_sent_and_not_logged(self):
+        secret = "https://example.com/secret-page"
+        calls = {"n": 0}
+
+        def reader(app):
+            calls["n"] += 1
+            app["url"] = secret
+            return dict(textbox.UNAVAILABLE)
+
+        self.watch.textbox_for = reader
+        log = ListLog()
+        first = self.messages(lambda fd: shoutr_helper.publish_focus(fd, log, self.watch))
+        self.assertEqual(
+            [self.kind(message) for message in first],
+            ["AppInfoUpdate", "TextBoxInfo"],
+        )
+        payload = first[0]["HelperAPIRequest"]["AppInfoUpdate"]["payload"]
+        self.assertEqual(payload["url"], secret)
+        self.assertEqual(calls["n"], 1)
+        self.assertIn("url=https", "\n".join(log.lines))
+        self.assertNotIn(secret, "\n".join(log.lines))
+
+        # Same window, new address: DictationStart sends the app again.
+        other = "https://example.com/other-secret"
+
+        def later(app):
+            calls["n"] += 1
+            app["url"] = other
+            return dict(textbox.UNAVAILABLE)
+
+        self.watch._page_url = secret
+        self.watch._page_bundle = "firefox.desktop"
+        self.watch.textbox_for = later
+        log.lines.clear()
+
+        def start(fd):
+            shoutr_helper.handle(
+                json.dumps({"HelperAPIRequest": {"uuid": "d1", "DictationStart": True}}),
+                fd,
+                log,
+                None,
+                False,
+                self.watch,
+            )
+
+        started = self.messages(start)
+        self.assertEqual(
+            [self.kind(message) for message in started],
+            ["AppInfoUpdate", "TextBoxInfo", "ACK"],
+        )
+        updated = started[0]["HelperAPIRequest"]["AppInfoUpdate"]["payload"]["url"]
+        self.assertEqual(updated, other)
+        self.assertIn("url=https", "\n".join(log.lines))
+        self.assertNotIn(secret, "\n".join(log.lines))
+        self.assertNotIn(other, "\n".join(log.lines))
+
 
 class TextBoxTest(unittest.TestCase):
     def test_the_deeper_focused_caret_wins(self):
@@ -359,6 +470,69 @@ class TextBoxTest(unittest.TestCase):
     def test_no_caret_is_not_a_text_box(self):
         window = FakeNode(True, "page", -1)
         self.assertIsNone(textbox.find_focused_text(window))
+
+    def test_an_editable_descendant_caret_is_used(self):
+        entry = FakeNode(False, "hello!", 5, editable=True)
+        page = FakeNode(True, "page", -1, children=[entry], editable=False)
+        found = textbox.find_focused_text(page)
+        self.assertIs(found, entry)
+        payload = textbox.textbox_from(found)
+        self.assertEqual(payload["beforeText"], "hello")
+        self.assertTrue(payload["isEditable"])
+
+    def test_a_page_without_an_editable_caret_is_not_a_text_box(self):
+        static = FakeNode(False, "hello", 2, editable=False)
+        page = FakeNode(True, "page", -1, children=[static], editable=False)
+        self.assertIsNone(textbox.find_focused_text(page))
+        node, url = textbox.context_from(page)
+        self.assertIsNone(node)
+        self.assertEqual(url, "")
+
+    def test_is_editable_comes_from_the_control(self):
+        entry = FakeNode(True, "ab", 1, editable=False)
+        payload = textbox.textbox_from(entry)
+        self.assertFalse(payload["isEditable"])
+        self.assertEqual(payload["beforeText"], "a")
+
+    def test_https_uri_is_the_page_url(self):
+        page = FakeNode(True, "x", -1, editable=False, uri="https://example.com/path")
+        node, url = textbox.context_from(page)
+        self.assertIsNone(node)
+        self.assertEqual(url, "https://example.com/path")
+        self.assertEqual(textbox.url_scheme(url), "https")
+
+    def test_doc_url_is_used_when_the_uri_is_not_http(self):
+        page = FakeNode(
+            True,
+            "",
+            -1,
+            editable=False,
+            uri="vscode-file://workspace/a",
+            doc_url="http://example.com/z",
+        )
+        self.assertEqual(textbox.context_from(page)[1], "http://example.com/z")
+
+    def test_vscode_file_and_empty_are_not_page_urls(self):
+        self.assertEqual(textbox.http_url("vscode-file://workspace/a"), "")
+        self.assertEqual(textbox.http_url(""), "")
+        self.assertEqual(textbox.http_url("file:///tmp/a"), "")
+        self.assertEqual(textbox.url_scheme("vscode-file://workspace/a"), "empty")
+        page = FakeNode(True, "", -1, editable=False, uri="vscode-file://workspace/a")
+        self.assertEqual(textbox.context_from(page)[1], "")
+
+    def test_a_focused_field_uses_the_document_url(self):
+        entry = FakeNode(True, "ab", 1, editable=True)
+        page = FakeNode(
+            False,
+            "",
+            -1,
+            children=[entry],
+            editable=False,
+            doc_url="http://example.com/z",
+        )
+        node, url = textbox.context_from(page)
+        self.assertIs(node, entry)
+        self.assertEqual(url, "http://example.com/z")
 
 
 if __name__ == "__main__":
