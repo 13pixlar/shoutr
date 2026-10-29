@@ -20,6 +20,25 @@ The port is for personal use on this machine, signed in with our own Wispr accou
 
 Target machine: Ubuntu 22.04.5, GNOME on Wayland (XWayland on `:0`). The user is in the `input` group. `ydotool`, `wl-copy`, `xclip`, and Python `evdev` are installed. `ydotoold` was not running when checked.
 
+## Current status (29 October 2026)
+
+Read this section first. The numbered roadmap and the pass notes below are the history. This is the hand-off.
+
+**Where the work stands.** Passes 1–3 are done: the Linux build launches, the signed-in profile opens, push-to-talk dictation pastes into the focused text box, and the helper names the focused app and pushes caret text when AT-SPI exposes a caret. Pass 4 (our own changes) is underway. The visible product is named Shoutr, the waveform marks from `img/` replace the vendor icons, and the shared theme is the midnight-navy palette. That branding is committed on `main` as `9febfaf` and pushed to the private repo `https://github.com/13pixlar/shoutr`.
+
+**How to start the app.** From `/var/www/shoutr`, run `npm start` (that is `bin/shoutr`). There is no desktop launcher yet. Leave the installed Wispr Flow 1.6.957 at `/usr/lib/wispr-flow` quit. Both builds share `~/.config/Wispr Flow` and `flow.sqlite`. Do not start 1.6.957 against this migrated schema.
+
+**What a new session should do next, in this order.**
+
+1. **Desktop launcher.** Shoutr still starts only from the project tree. Add a `shoutr.desktop` that runs `bin/shoutr`, install it into `~/.local/share/applications`, and use the embossed mark as the icon. `app.setDesktopName("shoutr.desktop")` is already set. Keep the profile path `~/.config/Wispr Flow`.
+2. **Text context for caret-less apps.** Dictation already sends `AppInfoUpdate` and `TextBoxInfo` when a caret exists (Terminal, some Firefox fields). Cursor's editor and a Firefox page still report no caret, and the browser URL is still `""`. Do not flip `ScreenReaderEnabled`; that starts Orca and still does not give Cursor a caret.
+3. **Native Wayland.** Pass 2 decided to run under XWayland first (`--ozone-platform=x11`). Moving off XWayland is the later platform step, not a blocker for daily dictation.
+4. **Leave until a behavior is unclear.** The second Flow directory (`~/Library/Application Support/Flow`), whether auto-update ever downloads anything (the check has returned HTML), and how 1.6.957 behaves on the migrated schema. Do not start 1.6.957 to find out.
+
+**Constraints that still apply.** Do not rename the profile directory, hosts, `wispr-flow://`, or bundle ids. Do not rewrite transcript text in the database. Do not bypass sign-in or server checks. Do not kill the app mid-dictation. Do not commit `payload/`, `work/`, or `build/`. `img/` is tracked because `tools/brand.mjs` reads it on every repack. Never log paste text, clipboard contents, key codes as typed text, window titles, or text-box contents. Do not quote the user's email or a Sentry user id.
+
+**Git.** Branch `main` tracks `origin/main` on `13pixlar/shoutr` (private). Commit only when asked, and show the message first. `payload/latest.json` may appear untracked; leave it.
+
 ## Artifacts on this machine
 
 | Role | Path | Identity |
@@ -267,7 +286,7 @@ Static work (steps 1–4) is done. Steps 5 onward run the app on this machine. E
 5. **Pass 1: launch on Linux.** Done. With 1.6.957 quit, `bin/shoutr` opened the existing profile, the hub was logged as shown, the stored account was already signed in, and the stub helper stayed ready. Dictation is Pass 2. The database is the one 1.6.1209 already migrated. Leave 1.6.957 quit while this build is running.
 6. **Pass 2: dictation.** Done. Ctrl+Space records, the transcript shows in the hub, the text stays on the clipboard, and it is pasted into the focused text box. The hub can be moved and minimized. The muted-mic toast can be clicked, and Space from the shortcut does not land in the text box. See Pass 2 progress.
 7. **Pass 3: context features.** Done for controls AT-SPI can read. The focused app is named, and a caret's surrounding text is pushed when dictation starts. A control with no caret, including Cursor's editor and a Firefox page, still has no text context. The browser URL is still empty. See Pass 3 progress.
-8. **Pass 4: our own changes.** With a working build, make deliberate changes to the app, such as Linux paths, telemetry settings, or UI tweaks, and keep each as a named patch.
+8. **Pass 4: our own changes.** Underway. The Linux window name, tray raise, Shoutr copy, waveform marks, and midnight-navy theme are done (see Pass 4 progress). Next in this pass: a desktop launcher so the app is not started only from `npm start`. After that, remaining functional work is caret-less text context (Pass 3 leftover), then native Wayland.
 9. **Compare builds only if a behavior is unclear.** Download 1.6.531 and compare. Until then, one version is enough.
 
 ## Pass 1 plan: launch on Linux
@@ -367,6 +386,7 @@ Answered and moved into the findings: the ready handshake, the response shape, t
 - **Second Flow directory.** Module `23913` export `u0` still resolves to `~/Library/Application Support/Flow` on anything that is not Windows. `~/Library` was not created during the 23 October launch. Whether a signed-in session writes there is not established.
 - **Auto-update on Linux.** The 23 October launch did start the check, and the override-release URL returned HTML. No update was downloaded in that run. Whether a later check downloads anything is not established.
 - **The live database.** `~/.config/Wispr Flow/flow.sqlite` has 17 migrations that 1.6.957 does not ship. The 1.6.1209 launch after 1.6.957 was quit did not add more. How 1.6.957 behaves against that schema is not established. Leave 1.6.957 quit while 1.6.1209 is running.
+- **Desktop launcher.** Not started. The app is opened with `npm start` / `bin/shoutr`. `setDesktopName("shoutr.desktop")` is already in the Linux window-name patch. A `.desktop` file in `~/.local/share/applications` has not been written.
 
 ## Pass 5: Shoutr v1 scope
 
