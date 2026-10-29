@@ -449,16 +449,19 @@ const SEMANTIC_ACCENT = {
 const LIGHT_SEMANTIC_STEPS = new Set([50, 100, 200]);
 
 export function retintSemanticSurfaces(text) {
-  text = text.replace(
-    /(?<![-\w])(background(?:-color)?)(\s*:\s*)var\(--([a-z]+)-(\d+)\)/g,
-    (match, prop, space, family, stepStr) => {
-      const step = Number(stepStr);
-      if (!LIGHT_SEMANTIC_STEPS.has(step)) return match;
-      const accent = SEMANTIC_ACCENT[family];
-      if (!accent) return match;
-      return `${prop}${space}color-mix(in srgb, ${accent} 18%, var(--background-secondary))`;
-    },
-  );
+  // Only rewrite CSS module / stylesheet text (`.foo{...}`), not JavaScript tokens.
+  text = text.replace(/\.[A-Za-z][\w-]*\{[^}]+\}/g, (rule) => {
+    return rule.replace(
+      /(?<![-\w])(background(?:-color)?)(\s*:\s*)var\(--([a-z]+)-(\d+)\)/g,
+      (match, prop, space, family, stepStr) => {
+        const step = Number(stepStr);
+        if (!LIGHT_SEMANTIC_STEPS.has(step)) return match;
+        const accent = SEMANTIC_ACCENT[family];
+        if (!accent) return match;
+        return `${prop}${space}color-mix(in srgb, ${accent} 18%, var(--background-secondary))`;
+      },
+    );
+  });
   return text.replaceAll(
     'background-color:color-mix(in srgb, var(--orange-100), var(--vast-950) 8%)',
     'background-color:color-mix(in srgb, var(--warning) 18%, var(--background-secondary))',

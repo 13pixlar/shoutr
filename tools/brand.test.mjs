@@ -48,7 +48,8 @@ test('paths, hosts, and identifiers stay', () => {
 });
 
 test('light semantic steps become navy warning sheets when used as backgrounds', () => {
-  const sample = 'background:var(--orange-100);background-color:var(--green-50);color:var(--orange-700)';
+  const sample =
+    '.toast{background:var(--orange-100);background-color:var(--green-50);color:var(--orange-700)}';
   const next = retintSemanticSurfaces(sample);
   assert.match(next, /background:color-mix\(in srgb, var\(--warning\) 18%, var\(--background-secondary\)\)/);
   assert.match(next, /background-color:color-mix\(in srgb, var\(--success\) 18%, var\(--background-secondary\)\)/);
