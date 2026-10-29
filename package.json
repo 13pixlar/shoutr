@@ -13,7 +13,8 @@
     "repack": "node tools/repack.mjs",
     "schema": "node tools/export-helper-schema.mjs",
     "start": "bin/shoutr",
-    "doctor": "bash packaging/doctor.sh"
+    "doctor": "bash packaging/doctor.sh",
+    "install-desktop": "python3 desktop/install_launcher.py"
   },
   "devDependencies": {
     "@electron/asar": "^4.3.1",

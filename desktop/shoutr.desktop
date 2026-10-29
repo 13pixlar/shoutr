@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Shoutr
+GenericName=Dictation
+Comment=Voice dictation (personal Linux build)
+Exec=@EXEC@
+TryExec=@EXEC@
+Icon=shoutr
+Terminal=false
+Categories=Utility;
+StartupNotify=true
+StartupWMClass=shoutr
+Keywords=dictation;voice;speech;
