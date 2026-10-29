@@ -24,7 +24,7 @@ Target machine: Ubuntu 22.04.5, GNOME on Wayland (XWayland on `:0`). The user is
 
 Read this section first. The numbered roadmap and the pass notes below are the history. This is the hand-off.
 
-**Where the work stands.** Passes 1–3 are done: the Linux build launches, the signed-in profile opens, push-to-talk dictation pastes into the focused text box, and the helper names the focused app and pushes caret text when AT-SPI exposes a caret. Pass 4 (our own changes) is underway. The visible product is named Shoutr, the waveform marks from `img/` replace the vendor icons, and the shared theme is the midnight-navy palette. That branding is committed on `main` as `9febfaf` and pushed to the private repo `https://github.com/13pixlar/shoutr`.
+**Where the work stands.** Passes 1–3 are done: the Linux build launches, the signed-in profile opens, push-to-talk dictation pastes into the focused text box, and the helper names the focused app and pushes caret text when AT-SPI exposes a caret. Pass 4 (branding and Linux polish) and Pass 5 (Shoutr v1 scope in the repacked hub) are largely done in tree; Pass 4 still has the open Firefox page-URL check below. Pass 6 (own client) is **planned**: replace dependence on the vendor `app.asar` and Wispr cloud with our Electron app and our backend, reusing `helper/` and the documented helper protocol. Speech **inference** stays an external call we control; everything else in the product stack is what Pass 6 re-homes. Until Pass 6 lands, `npm run repack` still needs the Windows setup extract (see **Install on another machine**).
 
 **How to start the app.** From `/var/www/shoutr`, run `npm start` (that is `bin/shoutr`), or launch **Shoutr** from the GNOME application menu after `npm run install-desktop`. Leave the installed Wispr Flow 1.6.957 at `/usr/lib/wispr-flow` quit. Both builds share `~/.config/Wispr Flow` and `flow.sqlite`. Do not start 1.6.957 against this migrated schema.
 
@@ -284,8 +284,10 @@ Static work (steps 1–4) is done. Steps 5 onward run the app on this machine. E
 5. **Pass 1: launch on Linux.** Done. With 1.6.957 quit, `bin/shoutr` opened the existing profile, the hub was logged as shown, the stored account was already signed in, and the stub helper stayed ready. Dictation is Pass 2. The database is the one 1.6.1209 already migrated. Leave 1.6.957 quit while this build is running.
 6. **Pass 2: dictation.** Done. Ctrl+Space records, the transcript shows in the hub, the text stays on the clipboard, and it is pasted into the focused text box. The hub can be moved and minimized. The muted-mic toast can be clicked, and Space from the shortcut does not land in the text box. See Pass 2 progress.
 7. **Pass 3: context features.** Done for controls AT-SPI can read. The focused app is named, and a caret's surrounding text is pushed when dictation starts. A control with no caret, including Cursor's editor and a Firefox page, still has no text context. The browser URL is still empty. See Pass 3 progress.
-8. **Pass 4: our own changes.** Underway. The Linux window name, tray raise, Shoutr copy, waveform marks, midnight-navy theme, desktop launcher, status toast colors, and native Wayland launch are done (see Pass 4 progress). The helper now fills an http(s) page URL when a tree is published. A live Firefox page is the check still open. Cursor's editor still has no caret unless its own accessibility support is on.
-9. **Compare builds only if a behavior is unclear.** Download 1.6.531 and compare. Until then, one version is enough.
+8. **Pass 4: our own changes.** Largely done. The Linux window name, tray raise, Shoutr copy, waveform marks, midnight-navy theme, desktop launcher, status toast colors, and native Wayland launch are done (see Pass 4 progress). The helper now fills an http(s) page URL when a tree is published. A live Firefox page is the check still open. Cursor's editor still has no caret unless its own accessibility support is on.
+9. **Pass 5: Shoutr v1 scope.** Done in tree. Hub nav, settings trim, and background no-ops are patch-driven on top of the vendor bundle. Run the Pass 5 regression checklist after repack when UI behavior matters.
+10. **Pass 6: own client.** Planned. Stop shipping repacked vendor `app.asar`; run a Shoutr-owned main process, UI, local store, and API while keeping the Linux helper. See **Pass 6: own client** below.
+11. **Compare builds only if a behavior is unclear.** Download 1.6.531 and compare. Until then, one version is enough.
 
 ## Pass 1 plan: launch on Linux
 
@@ -438,6 +440,111 @@ Run after `npm run repack` and restarting with `bin/shoutr` (vendor `wispr-flow`
 - **App services. Observed.** `Launching app services...` and `App services finished launching` still run (hub IPC init). No `[CalendarSyncManager] Initializing`, no `[MDM] Failed to start update checks`, and no insights prefetch errors on the smoke log. `[CalendarReminder]` status-lane pushes may still appear; calendar **sync** init is patched to skip on Linux when that path runs.
 - **Hub nav and promos.** Patches `091` and `092`/`092b` are in the bundle (`w1=[Q.z6.Dictation,Q.z6.Dictionary]`, hub dialog `useEffect` short-circuited in `092b`). **Fix:** first `092b` used `process.platform` in the hub renderer, which threw `ReferenceError: process is not defined` and showed “Shoutr hit a snag”; repack uses an unconditional `return` at the top of that effect (renderer has no `process`; Shoutr is Linux-only). Manual UI check: open hub from tray and confirm sidebar/footer; Ctrl+Space dictation unchanged from Pass 2.
 - **Helper (optional trim).** No change. `StartAllIntervals` / `StopAllIntervals` already ACK-only in `helper/shoutr_helper.py`; v1 dictation path unchanged.
+
+## Pass 6: own client
+
+Pass 6 is the path off the Wispr Windows package. Passes 1–3 replaced the **platform helper** and mapped the **Helper API**. Pass 4–5 **patched and skinned** the vendor Electron app. Pass 6 **replaces** that app and **Wispr's backend** with code and services we own. The only deliberate external dependency at the end is **speech-model inference** (and whatever vendor API we choose for that one step). Personal learning constraints still apply while the repacked build is in use: do not bypass Wispr sign-in or entitlements on the vendor client; Pass 6 work should move dictation to **our** account and **our** API instead of weakening theirs.
+
+### What stays vs what goes
+
+| Layer | Pass 6 outcome |
+| --- | --- |
+| `helper/shoutr_helper.py`, GNOME window bridge, paste/keys/AT-SPI | **Keep.** This is already our Linux platform layer. Extend handlers only if the new main process needs more Helper API kinds. |
+| Helper IPC contract | **Keep as reference.** `npm run schema` / `work/helper-protocol.md` remain the contract doc. The own client implements the Electron side of the same framing on stdin/fd 3. |
+| `patches/*`, `tools/brand.mjs` on vendor bundles | **Retire** once the hub/status/tray are our renderers. Patches become migration notes, not a permanent build step. |
+| Repacked `app.asar` (main + renderer webpack) | **Replace** with a tracked Shoutr app (still Electron 42 unless we document a deliberate bump). |
+| `flow.sqlite`, vendor Sequelize migrations, Wispr dictionary/insights sync | **Replace** with our schema and sync rules, or a deliberate v1 subset (dictation history + personal dictionary only). |
+| Auth (device login, WorkOS, session storage in profile) | **Replace** with our identity and tokens. Profile directory may move off `~/.config/Wispr Flow` when we no longer need binary compatibility with Wispr. |
+| `api.wisprflow.ai` / `wss://…`, cloud/admin hosts | **Replace** with our HTTP/WebSocket API. Capture behavior from the vendor bundle only for learning, not for production traffic on their keys. |
+| Mic capture + Opus chunking | **Reimplement in our repo** (same ideas as observed: Chromium capture, WASM or native Opus). Do not depend on vendor worker filenames. |
+| Analytics (Sentry, Segment, PostHog) | **Drop or replace** with our own observability choices. |
+| `./install.sh` vendor download | **Remove** when `build/resources/app.asar` is produced from our sources only. |
+
+### Target shape
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│  Shoutr Electron (our main + renderer, tracked in git)   │
+│  - shortcuts, dictation FSM, tray/status UI              │
+│  - spawn helper, Helper API client (same pipe protocol)  │
+│  - mic → encode → our WebSocket/HTTP                     │
+└───────────────────────────┬─────────────────────────────┘
+                            │ stdin / fd 3 JSON
+┌───────────────────────────▼─────────────────────────────┐
+│  helper/shoutr_helper.py (+ gnome window bridge)         │
+└─────────────────────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│  Our backend (auth, sessions, billing if any)            │
+│  → single LM / ASR provider call per utterance/stream      │
+└─────────────────────────────────────────────────────────┘
+```
+
+Success for Pass 6 **phase 1** (minimal): push-to-talk still works end-to-end with **no** vendor `app.asar` and **no** call to Wispr's API, using our backend and our model endpoint. Success for Pass 6 **complete**: v1 features we care about (hub About/Settings, dictionary, insights or explicit drops) run on our UI and our data, and install no longer downloads the Windows setup.
+
+### Work order
+
+Do these in order. Each phase should add a short note under **Pass 6 progress** with what was run and observed (same rule as earlier passes).
+
+#### Phase 1 — Map the vendor dictation path (read-only on our account)
+
+Goal: a written spec our own client can implement, without relying on minified names alone.
+
+1. **Locate dictation modules in the frozen bundle.** Search `work/app/.webpack/main/index.js` (after `npm run repack` extraction) for strings already known: `dictation.streaming`, `DictationStart`, `DictationStop`, `PasteText`, `wss://api.wisprflow.ai`, `opusEncoder.worker`. Record webpack module IDs and call order in `work/pass6-dictation-map.md` (gitignored under `work/` unless we later promote a sanitized summary).
+2. **Capture one live session.** With vendor Shoutr still used for this step only: log **metadata only** (timings, message kinds, byte lengths, HTTP paths, WS opcodes). No audio files, no transcript text, no tokens, no email, in repo or docs.
+3. **Document the wire contract.** Tables for: WS connect (URL, headers, subprotocols), auth attachment, start/stop dictation messages, audio frame format (codec, sample rate, chunk boundaries), partial vs final transcript events, error shapes, and which **context** fields the server accepts (app id, `beforeText`/`afterText`, page URL). Mark each row **Observed** vs **Inferred**.
+4. **Separate "model" from "product".** List server-side behaviors that are not raw ASR (punctuation, dictionary replacements, profanity, usage metering). Pass 6 backend owns those explicitly even if v1 starts with passthrough text.
+
+#### Phase 2 — Minimal own client ("thin Shoutr")
+
+Goal: delete the vendor asar from the runtime path for dictation only; UI can be ugly.
+
+1. **New app root.** Add a tracked package (e.g. `app/` or top-level `src/`) with `package.json`, Electron main entry, and a tiny renderer or headless mode. Wire `bin/shoutr` to launch **our** asar when `SHOUTR_OWN_CLIENT=1` (or flip the default once stable).
+2. **Helper client port.** Implement pipe framing (`escapeMessage`, pending `uuid`, fd 3) matching `helper/test_framing.py`. Reuse shortcut semantics from Pass 2: read `config.json` keybinds or our own config file; Windows VK codes on Linux; `DictationStart`/`DictationStop`; `PasteText` after final text.
+3. **Audio path.** `getUserMedia` + Opus (reuse vendor WASM only as **reference**, ship our copy or a maintained library). Stream to **our** backend, not Wispr.
+4. **Paste path unchanged.** Final transcript → helper `PasteText` → existing paste keyboard.
+5. **Definition of done.** Ctrl+Space dictation with vendor app **quit**, no `payload/` extract required for this mode, helper log shows the same kinds as today.
+
+#### Phase 3 — Our backend
+
+Goal: server we control; LM is one downstream call.
+
+1. **Auth.** Issue session tokens; no Wispr device-code flow. Design for a single user first (personal project).
+2. **Streaming ingest.** Accept the same audio framing documented in phase 1 unless we intentionally simplify; document the Shoutr v1 format.
+3. **Inference adapter.** One interface (e.g. `transcribeStream(audio) → text events`) implemented against the chosen provider. Keep provider keys on the server only.
+4. **Context.** Accept optional app name, caret split, http(s) URL from the client; apply only what we implement (v1 may ignore URL).
+5. **Definition of done.** Thin client from phase 2 works against staging backend; vendor API not contacted.
+
+#### Phase 4 — Product surface and data
+
+Goal: match or consciously shrink Shoutr v1 without vendor webpack.
+
+1. **Local store.** New SQLite (or other) schema; migrate off `flow.sqlite` or import once with a one-shot tool. No Sequelize requirement unless we choose it.
+2. **Hub windows.** Rebuild or simplify: About, Dictation, Dictionary, Insights, Settings — reuse `img/` and the midnight-navy tokens from `tools/brand.mjs` as CSS variables, not patch-time string replace.
+3. **Tray and status.** Same UX guarantees as Pass 2/4 (raise hub, muted-mic toast clicks, offscreen status park).
+4. **Dictionary and insights.** Either first-class sync against our backend or explicit **out of scope for Pass 6 v1** with hub rows removed in our UI (do not half-depend on Wispr tables).
+
+#### Phase 5 — Install and retirement
+
+1. **Build.** `npm run repack` becomes optional legacy; add `npm run build:app` (or similar) that produces `build/resources/app.asar` from our sources only.
+2. **`install.sh`.** Drop `packaging/vendor.json` download when phase 2 default is stable; document legal/provenance in README only.
+3. **Profile migration.** Optional one-time export from `~/.config/Wispr Flow` for history; then default new profile dir (e.g. `~/.config/shoutr`).
+4. **ROADMAP and AGENTS.** Update hand-off: Pass 6 done, vendor investigation archived.
+
+### Pass 6 regression checklist
+
+Run when the own client is the default launch path:
+
+1. **No vendor tree.** Fresh clone without `payload/` can build and run (except Node/Electron install).
+2. **Helper:** ready handshake, no crash loop; Ctrl+Space without stray Space; paste into focused GTK/X11/Wayland field.
+3. **Context:** `AppInfoUpdate` and caret `TextBoxInfo` still push; http(s) URL when Firefox exposes a page (same open check as Pass 4).
+4. **Backend:** no DNS/connect to `api.wisprflow.ai` during dictation (verify with firewall or log redaction checklist).
+5. **Hub (when built):** v1 nav matches Pass 5 intent or documented shrink list.
+6. **Logs:** same privacy rules as **Constraints** — no paste text, clipboard, window titles, or transcript content in logs.
+
+### Pass 6 progress
+
+- **Not started.** Phase 1 step 1 is the first actionable item once Pass 4's Firefox URL check and any Pass 5 manual regression are satisfied.
 
 ## Install on another machine
 
