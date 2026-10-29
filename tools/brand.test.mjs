@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { replaceBrand, retheme, retintRoles } from './brand.mjs';
+import { replaceBrand, retheme, retintNeutralUsage, retintRoles } from './brand.mjs';
 
 test('visible product names become Shoutr', () => {
   assert.equal(replaceBrand('Open Wispr Flow'), 'Open Shoutr');
@@ -45,6 +45,20 @@ test('paths, hosts, and identifiers stay', () => {
   assert.equal(replaceBrand('e.WisprContacts'), 'e.WisprContacts');
   assert.equal(replaceBrand('menus_open_wispr_flow'), 'menus_open_wispr_flow');
   assert.equal(replaceBrand('Wispr:"wispr"'), 'Wispr:"wispr"');
+});
+
+test('neutral steps keep navy surfaces when used as toast backgrounds', () => {
+  const sample = [
+    'background:var(--neutral-900)',
+    'background-color:var(--neutral-800)',
+    'color:var(--neutral-900)',
+    'color:var(--neutral-600)',
+  ].join(';');
+  const next = retintNeutralUsage(sample);
+  assert.match(next, /background:var\(--background\)/);
+  assert.match(next, /background-color:var\(--card\)/);
+  assert.match(next, /color:#E8EDFF/);
+  assert.match(next, /color:#94A3C4/);
 });
 
 test('dark text on navy is lifted and light sheets come down', () => {

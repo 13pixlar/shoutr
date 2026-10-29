@@ -392,6 +392,46 @@ function contrast(foreground, background) {
 // The vendor light theme uses dark steps as text and light steps as surfaces.
 // Both themes now sit on navy, so a dark step used as text is lifted and a
 // light structural surface is brought back down.
+// The readable neutral map points high steps at --foreground so menu labels stay
+// visible on navy. Some surfaces still use those steps as backgrounds, which
+// would paint the toast cards the same light ink color.
+const NEUTRAL_SURFACE = {
+  50: 'var(--background-tertiary)',
+  100: 'var(--background-tertiary)',
+  200: 'var(--border)',
+  300: 'var(--border)',
+  600: 'var(--background-secondary)',
+  800: 'var(--card)',
+  900: 'var(--background)',
+};
+
+const NEUTRAL_INK = {
+  100: '#B7C2DE',
+  200: '#B7C2DE',
+  400: '#94A3C4',
+  500: '#94A3C4',
+  600: '#94A3C4',
+  800: '#E8EDFF',
+  900: '#E8EDFF',
+};
+
+export function retintNeutralUsage(text) {
+  text = text.replace(
+    /(?<![-\w])(background(?:-color)?)(\s*:\s*)var\(--neutral-(\d+)\)/g,
+    (match, prop, space, step) => {
+      const surface = NEUTRAL_SURFACE[Number(step)];
+      return surface ? `${prop}${space}${surface}` : match;
+    },
+  );
+  return text.replace(
+    /(?<![-\w])(color|fill|stroke|caret-color)(\s*:\s*)var\(--neutral-(\d+)\)/g,
+    (match, prop, space, step) => {
+      const ink = NEUTRAL_INK[Number(step)];
+      return ink ? `${prop}${space}${ink}` : match;
+    },
+  );
+}
+
 export function retintRoles(text) {
   text = text.replace(
     /(?<![-\w])(color|fill|stroke|caret-color)(\s*:\s*)var\(--(shade-white|background|background-secondary|background-tertiary|card|popover|pure-black)\)/g,
@@ -435,7 +475,7 @@ export function retheme(text) {
     if (!color) throw new Error(`No Shoutr color for ${name}-${step}`);
     return `--${name}-${step}: ${color}`;
   });
-  next = retintRoles(retintHardcoded(next));
+  next = retintNeutralUsage(retintRoles(retintHardcoded(next)));
   next = replaceOnce(next, '}html[data-theme-transition=fade]', `}${EXTRA}html[data-theme-transition=fade]`, 'focus and motion');
   for (const step of Object.keys(STEPS)) {
     if (!FAMILIES[step]) throw new Error(`Missing family ${step}`);
